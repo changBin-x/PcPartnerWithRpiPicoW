@@ -226,7 +226,7 @@ def decode_packet(data):
 
 **文件：** 创建 `requirements-host.txt`、`pc_metrics/collectors.py`、`tests/test_collectors.py`。
 
-- [ ] **步骤 1：声明并安装主机依赖**
+- [x] **步骤 1：声明并安装主机依赖**
 
 `requirements-host.txt` 内容：
 
@@ -235,9 +235,9 @@ psutil>=5.9,<8
 ```
 
 运行：`python -m pip install -r requirements-host.txt`  
-预期：`psutil` 可导入；GPU 命令仍由已安装的 NVIDIA 驱动提供，不通过 Python 包下载。
+结果：隔离 `.venv` 安装 `psutil 7.2.2` 成功；GPU 命令仍由已安装的 NVIDIA 驱动提供。
 
-- [ ] **步骤 2：先写纯函数测试**
+- [x] **步骤 2：先写纯函数测试**
 
 在 `tests/test_collectors.py` 加入：
 
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **步骤 3：实现采集函数与采样器**
+- [x] **步骤 3：实现采集函数与采样器**
 
 创建 `pc_metrics/collectors.py`。按下面实现纯函数，再实现 `MetricsCollector.sample()`：
 
@@ -289,12 +289,12 @@ def validate_percent(value):
 
 `sample()` 用 `psutil.cpu_percent(interval=None)`、`psutil.virtual_memory().percent`、指定 Ethernet 的 `psutil.net_io_counters(pernic=True)`；速率使用单调时钟实测间隔。GPU 用 `subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=0.7, check=True)` 查询 GPU 0，失败或输出不是 0–100 数值时设为 `None`。第一次调用只建立网络计数基线并返回尚未就绪状态，不能把首个瞬时采样伪装为 0 MB/s。
 
-- [ ] **步骤 4：运行采集器测试**
+- [x] **步骤 4：运行采集器测试**
 
 运行：`python -m unittest tests.test_collectors -v`  
-预期：换算、计数器回退和非法百分比测试通过。
+结果：6 项采集器测试通过；首次采样仅建立计数基线，GPU 不可用时保留其他指标。
 
-- [ ] **步骤 5：列出本机网卡并确定有线接口选择**
+- [x] **步骤 5：列出本机网卡并确定有线接口选择**
 
 运行：
 
@@ -303,13 +303,13 @@ Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Sort-Object RouteMetric | Select-Obj
 Get-NetAdapter | Select-Object ifIndex,Name,InterfaceDescription,Status,PhysicalMediaType
 ```
 
-预期：将默认路由索引映射到活动 Ethernet 接口；若自动选中虚拟网卡或 Wi-Fi，则通过 `pc_metrics/config.py` 的 `ETHERNET_INTERFACE` 覆盖。配置为空时程序必须打印候选接口并退出，不可静默选错。
+结果：默认路由 metric 最低的是 FlClash 虚拟隧道（ifIndex 60）；真实有线口为 `以太网`（ifIndex 24）。接口有 `192.168.10.9/24` 与 `192.168.2.1/24` 两个地址，网关 `192.168.10.1` 匹配前者。配置明确指定 `以太网`，广播目标选择 `192.168.10.255`。
 
 ## 任务 4：实现广播发送与手动启动器
 
 **文件：** 创建 `pc_metrics/config.py`、`pc_metrics/broadcaster.py`、`pc_metrics/host.py`、`tools/start_metrics.ps1`。
 
-- [ ] **步骤 1：实现配置和广播地址单元测试**
+- [x] **步骤 1：实现配置和广播地址单元测试**
 
 在 `tests/test_broadcaster.py` 加入：
 
@@ -337,7 +337,7 @@ if __name__ == "__main__":
 
 运行：`python -m unittest tests.test_broadcaster -v`。预期：因函数尚不存在而失败。
 
-- [ ] **步骤 2：实现单包发送器**
+- [x] **步骤 2：实现单包发送器**
 
 创建 `pc_metrics/broadcaster.py`：
 
@@ -363,17 +363,19 @@ def send_packet(sock, packet, broadcast_address, port=8765):
 
 运行：`python -m unittest tests.test_broadcaster -v`。预期：两项测试通过。发送器不调用 `bind()` 建立接收端口。
 
-- [ ] **步骤 3：实现主机循环和退出行为**
+- [x] **步骤 3：实现主机循环和退出行为**
 
 `pc_metrics/host.py` 每秒按单调时钟安排一次采样，调用协议编码和广播发送；落后时跳过积压采样而不突发补发。`Ctrl+C` 时关闭套接字并输出停止信息。GPU 为空时继续发送其余指标。
 
-- [ ] **步骤 4：创建 PowerShell 手动启动入口**
+- [x] **步骤 4：创建 PowerShell 手动启动入口**
 
 `tools/start_metrics.ps1` 先将工作目录切到项目根目录，再启动 `python -m pc_metrics.host`；Python 不存在或依赖缺失时显示安装命令。执行：`powershell -ExecutionPolicy Bypass -File tools/start_metrics.ps1`。预期：终端显示已选 Ethernet 名称、IPv4/广播目标和 1 秒启动状态。
 
-- [ ] **步骤 5：用本机 UDP 接收器验证格式与方向**
+- [x] **步骤 5：用本机 UDP 接收器验证格式与方向**
 
 运行临时测试接收器监听 UDP 8765，确认收包字段、序号和周期；停止测试接收器后，主机发送程序仍可运行。确认没有新增 TCP 监听端口。若同一路由器下 Pico 不收包，先检查广播域、访客 Wi-Fi 和客户端隔离，不添加 TCP 入站服务。
+
+结果：临时接收器收到有效 v1 数据包，序号递增、周期约 0.98 秒；停止接收器后发送端仍运行。发送端没有建立 TCP/HTTP 或 UDP 接收服务。广播与采集/协议合计 37 项定向测试通过。
 
 ## 任务 5：构建本地 HKO 农历年表
 
@@ -451,7 +453,7 @@ python -m unittest tests.test_lunar -v
 
 **文件：** 创建 `pico/wifi.py`、`pico/udp_receiver.py`、`pico/time_sync.py`、更新 `pico/lunar.py`、创建 `pico/app.py`。
 
-- [ ] **步骤 1：增加本地 Wi-Fi 模板和秘密忽略规则**
+- [x] **步骤 1：增加本地 Wi-Fi 模板和秘密忽略规则**
 
 创建 `pico/wifi_secrets.example.py`，内容只有空值：
 
@@ -462,19 +464,19 @@ PASSWORD = ""
 
 在 `.gitignore` 加入 `pico/wifi_secrets.py`、`__pycache__/`、`*.pyc` 和 `logs/`。`pico/wifi.py` 检查配置为空时在屏幕显示配置提示，不把 SSID/密码写入日志。
 
-- [ ] **步骤 2：实现 NTP 多源与本地时钟行为**
+- [x] **步骤 2：实现 NTP 多源与本地时钟行为**
 
 `pico/time_sync.py` 按 `ntp.aliyun.com`、`ntp1.aliyun.com`、`ntp2.aliyun.com` 顺序尝试 UDP NTP；开机及 Wi-Fi 重连时同步，成功后每 6 小时复核。失败时保留有效 RTC 并标为未同步；首次时间未知时不格式化伪造日期。所有用户可见时间按 UTC+8。
 
-- [ ] **步骤 3：实现 HKO API 安全请求和边界处理**
+- [x] **步骤 3：实现 HKO API 安全请求和边界处理**
 
 `pico/lunar.py` 对 `https://data.weather.gov.hk/weatherAPI/opendata/lunardate.php?date=YYYY-MM-DD` 发 HTTPS GET，设置 2 秒套接字超时和 SNI，先校时再用 `ssl.CERT_REQUIRED` 与 CA 信任链验证证书。DNS `getaddrinfo()` 不受套接字超时约束。先显示本地年表结果，再在开机/日期变化时低频请求；只解析 `LunarYear`/`LunarDate`，繁体转简体、移除生肖和标点。API 失败时继续用有效本地表；不按秒请求，重试间隔逐步增加。
 
-- [ ] **步骤 4：实现 UDP 接收和三秒超时状态**
+- [x] **步骤 4：实现 UDP 接收和三秒超时状态**
 
 `pico/udp_receiver.py` 在 UDP 8765 上接收广播，使用 `ujson` 解析，检查版本、包长、字段、数值范围与序号。`pico/app.py` 用 `time.ticks_ms()`/`time.ticks_diff()` 计算收包新鲜度：有效包到达进入在线仪表盘；超过 3000 ms 切换时钟；新包到达立即恢复。UDP 等待必须非阻塞或短超时，确保时间和绘图持续刷新。
 
-- [ ] **步骤 5：用主机单元测试覆盖状态机和数据异常**
+- [x] **步骤 5：用主机单元测试覆盖状态机和数据异常**
 
 在 `tests/test_app_state.py` 验证：刚收到数据为 `dashboard`、2999 ms 为 `dashboard`、3000 ms 及以上为 `clock`、恢复有效包后为 `dashboard`、无效包不刷新超时。运行：`python -m unittest discover -s tests -v`。预期：协议、采集器、日历和状态机测试全部通过。
 
