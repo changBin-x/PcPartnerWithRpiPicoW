@@ -449,6 +449,10 @@ python -m unittest tests.test_lunar -v
 
   通过 `mpremote connect COM4 mount pico exec ...` 临时挂载驱动，分别绘制仪表盘和时钟固定样例；不复制或覆盖设备根目录文件。运行调用返回成功后，检查方向、实际字边缘、对比度和人眼观感仍需现场观察者完成。
 
+- [ ] **用户目视验收：确认新字体、冒号与混排基线**
+
+  代码路径、SPI 写入、帧耗时及堆占用已实测，但开发工具不能读取 LCD 像素。请用户检查改版后的实体画面，并确认字缘是否更平滑、日期/农历基线是否齐、冒号是否自然、两种布局有无截断；收到反馈后再决定是否需要微调。
+
 ### Task 6 视觉迭代记录（2026-10-31）
 
 - 使用微软雅黑和 Segoe UI 重新生成 56 个中文、71 个 ASCII、10 个大时钟数字字形。字库源文件为 42,385 字节；覆盖字形数据合计 11,284 字节。
@@ -502,22 +506,22 @@ PASSWORD = ""
 
 **文件：** 创建 `pico/main.py`、`tools/deploy_pico.ps1`，更新 `README.md`。
 
-- [ ] **步骤 1：建立启动入口与崩溃可恢复行为**
+- [x] **步骤 1：建立启动入口与崩溃可恢复行为**
 
 `pico/main.py` 使用 `from pico.app import run`；顶层捕获普通异常，在屏幕显示简短错误状态并定时软重启，避免 Wi-Fi/API 单次错误退出到 REPL。创建空的 `pico/__init__.py` 作为包入口。Ctrl+C 仍允许维护时中断。不得把永久阻塞初始化放进 `boot.py`。
 
-- [ ] **步骤 2：实现明确文件清单的 COM4 部署脚本**
+- [x] **步骤 2：实现明确文件清单的 COM4 部署脚本**
 
 `tools/deploy_pico.ps1` 在缺少 `pico/wifi_secrets.py` 时停止并提示用户从模板复制后本地填写；不输出该文件内容。先在 Pico 内部创建 `/pico`，将 `pico/__init__.py`、应用模块、年表、字形和本机配置分别复制到 `/pico/<文件名>`，再把 `pico/main.py` 复制为设备根目录 `/main.py`。上传后执行一次硬件 reset。
 
-- [ ] **步骤 3：写入操作文档**
+- [x] **步骤 3：写入操作文档**
 
 README 写明：PC Ethernet/Pico Wi-Fi 同属可广播局域网；填写 SSID/密码；安装 `requirements-host.txt`；运行 PowerShell 启动器；部署到 COM4；观察两个屏幕状态；停止主机程序；现场网络检查和常见故障。文档不含任何真实凭据。
 
-- [ ] **步骤 4：运行完整主机侧自动化检查**
+- [x] **步骤 4：运行完整主机侧自动化检查**
 
 运行：`python -m unittest discover -s tests -v`  
-预期：所有已创建测试通过；`python -m compileall pc_metrics tests tools` 无语法错误。此步骤在实施阶段执行，不在本计划编写阶段运行。
+结果：91 项主机侧测试通过；`python -m compileall pc_metrics tests tools`、Pico 模块导入检查、PowerShell parser 与 `git diff --check` 均通过。部署脚本在缺少本地 Wi-Fi 配置时于任何 COM/设备操作前安全退出。
 
 - [ ] **步骤 5：验证用户指定的大陆现场网络**
 
