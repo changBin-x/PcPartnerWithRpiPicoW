@@ -175,7 +175,7 @@ class ST7735:
     def _draw_chinese(self, x, y, character, color, background):
         bitmap = FONT_CN.get(character)
         if bitmap is None:
-            return self._draw_ascii(x, y, "?", color, background, 1)
+            raise ValueError("缺少中文字形: %s" % character)
         width = 12
         height = 12
         bg_high, bg_low = _color_bytes(background)

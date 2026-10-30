@@ -2,6 +2,7 @@ import math
 import unittest
 
 from pico.display import TRACK, _text_width, draw_clock, draw_dashboard
+from pico.font_cn import FONT_CN
 from pico.st7735 import ST7735
 
 
@@ -39,6 +40,16 @@ class RecordingSPI:
 
 
 class DisplayTests(unittest.TestCase):
+    def test_required_weekday_and_lunar_day_characters_have_glyphs(self):
+        for text in ("星期一", "初一"):
+            missing = [character for character in text if character not in FONT_CN]
+            self.assertEqual(missing, [], "缺少字形: %s" % "".join(missing))
+
+    def test_driver_does_not_silently_replace_missing_chinese_with_question_mark(self):
+        screen = ST7735.__new__(ST7735)
+        with self.assertRaisesRegex(ValueError, "缺少中文字形"):
+            screen._draw_chinese(0, 0, "龘", 0xFFFF, 0x0000)
+
     def test_driver_stops_before_emitting_glyphs_past_right_edge(self):
         screen = ST7735.__new__(ST7735)
         screen.width = 128
