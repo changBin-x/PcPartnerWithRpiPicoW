@@ -1,0 +1,10 @@
+.superpowers/
+.vscode/
+.worktrees/
+.venv/
+__pycache__/
+*.py[cod]
+pico/wifi_secrets.py
+logs/
+!docs/superpowers/
+!docs/superpowers/**
