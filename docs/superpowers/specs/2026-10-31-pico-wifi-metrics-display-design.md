@@ -1,7 +1,7 @@
 # Pico Wi-Fi 电脑状态屏设计说明
 
-**状态：待用户审阅**  
-**目标硬件：** Pico W / Pico 2 W 兼容的 MicroPython 板、ST7735S 128×160 TFT   
+**状态：已由用户批准（2026-10-31）**
+**目标硬件：** Raspberry Pi Pico W（RP2040，COM4 上 MicroPython 1.29.0）、ST7735S 128×160 TFT
 **已确认屏幕选择：** 在线仪表盘 B；断连时钟 B
 
 ## 目标

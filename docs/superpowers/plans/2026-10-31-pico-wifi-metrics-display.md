@@ -15,7 +15,7 @@
 - 已确认屏幕型号、分辨率、连线、界面 B/B、指标、单位、1 秒刷新、UDP 广播、3 秒断线切换、NTP/UTC+8、农历格式和 `main.py` 持久启动要求。完整决策见 [设计说明](../specs/2026-10-31-pico-wifi-metrics-display-design.md)。
 - 当前 `D:\Projects\pc_partner` 文件系统仅见 `README.md` 与会话原型文件；IDE 标签里的 `src/main.cpp`、`test_st7735s.py` 当前不在磁盘树中。任务 1 先重查实际路径，若源文件重新可见则先读后改；若仍不可见，按本计划在本目录新建独立目录，不覆盖 IDE 外部文件。
 - 用户已明确批准初始化本地 Git 并创建 worktree。基线提交只包含 `.gitignore`、`README.md` 与 `docs/` 设计/计划文件；`.superpowers/` 浏览器会话、`.vscode/` 本机设置、`.worktrees/`、本地 Wi-Fi 密码和缓存均忽略。功能代码在 `.worktrees/pico-wifi-metrics-display` 的 `codex/pico-wifi-metrics-display` 分支开发；完成后按分支收尾流程整合。
-- COM4 之前运行过 MicroPython，但部署前仍要重新读取实际板型和版本。电脑采集器只发包，不建立 TCP/HTTP 入站服务。
+- COM4 实测为 MicroPython 1.29.0，`sys.implementation` 标识 `Raspberry Pi Pico W with RP2040`；用户核对实体丝印为 Pico W。电脑采集器只发包，不建立 TCP/HTTP 入站服务。
 
 ## 目标文件清单
 
@@ -57,7 +57,7 @@
 
 **文件：** 无；只读检查。
 
-- [ ] **步骤 1：重新定位当前源文件和 Git 状态**
+- [x] **步骤 1：重新定位当前源文件和 Git 状态**
 
 运行：
 
@@ -68,19 +68,21 @@ Test-Path test_st7735s.py
 git rev-parse --is-inside-work-tree
 ```
 
-预期：明确哪些 IDE 标签对应当前磁盘文件；若 Git 返回非仓库，记录“不创建 worktree/commit”。不删除、不覆盖现有文件。
+结果：`src/main.cpp` 与 `test_st7735s.py` 在工作树中均不存在；Git worktree 位于 `codex/pico-wifi-metrics-display`。未删除或覆盖 IDE 外部文件。
 
-- [ ] **步骤 2：读取 COM4 的板型和 MicroPython 版本**
+- [x] **步骤 2：读取 COM4 的板型和 MicroPython 版本**
 
-关闭占用 COM4 的 Thonny 串口会话后运行：
+在 worktree 的隔离 `.venv` 中安装 mpremote 后运行：
 
 ```powershell
-python -m mpremote connect COM4 exec "import sys; print(sys.implementation); print(sys.version)"
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install mpremote
+.\.venv\Scripts\python.exe -m mpremote connect COM4 exec "import sys; print(sys.implementation); print(sys.version)"
 ```
 
-预期：输出 RP2 端口、实际板型和版本。若 `mpremote` 未安装，执行 `python -m pip install mpremote`，再重试；不打印或读取 Wi-Fi 密码。
+结果：输出 RP2 端口、`Raspberry Pi Pico W with RP2040`、MicroPython 1.29.0；未访问 Wi-Fi 配置。
 
-- [ ] **步骤 3：创建独立目录骨架**
+- [x] **步骤 3：创建独立目录骨架**
 
 仅在确认源文件缺失后创建：
 
@@ -88,13 +90,13 @@ python -m mpremote connect COM4 exec "import sys; print(sys.implementation); pri
 New-Item -ItemType Directory -Force pc_metrics,pico,tools,tests | Out-Null
 ```
 
-预期：四个目录存在，已有 `README.md` 保留。
+结果：`pc_metrics/`、`pico/`、`tools/`、`tests/` 均已创建，已有 `README.md` 保留。
 
 ## 任务 2：固定 UDP v1 契约并测试数据校验
 
 **文件：** 创建 `pc_metrics/protocol.py`、`tests/test_protocol.py`。
 
-- [ ] **步骤 1：先写协议测试**
+- [x] **步骤 1：先写协议测试**
 
 创建空文件 `tests/__init__.py` 与 `pc_metrics/__init__.py`，再在 `tests/test_protocol.py` 加入：
 
@@ -131,12 +133,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **步骤 2：运行测试确认初始失败**
+- [x] **步骤 2：运行测试确认初始失败**
 
 运行：`python -m unittest tests.test_protocol -v`  
 预期：因 `pc_metrics.protocol` 尚不存在而失败。
 
-- [ ] **步骤 3：实现协议函数**
+- [x] **步骤 3：实现协议函数**
 
 创建 `pc_metrics/protocol.py`，按以下核心逻辑实现：
 
@@ -153,15 +155,15 @@ def _number(value, minimum, maximum=None, allow_none=False):
         return None
     if isinstance(value, bool):
         raise ValueError("布尔值不是有效数字")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("字段必须是数字") from exc
-    if not math.isfinite(number) or number < minimum:
+    if not isinstance(value, (int, float)):
+        raise ValueError("字段必须是数字")
+    if isinstance(value, float) and not math.isfinite(value):
         raise ValueError("字段超出有效范围")
-    if maximum is not None and number > maximum:
+    if value < minimum:
         raise ValueError("字段超出有效范围")
-    return number
+    if maximum is not None and value > maximum:
+        raise ValueError("字段超出有效范围")
+    return value
 
 
 def encode_packet(seq, sampled_at, cpu, gpu, ram, rx, tx):
@@ -211,10 +213,10 @@ def decode_packet(data):
 
 协议字段固定为 `v=1`、`seq`、`ts`、`cpu`、`gpu`、`ram`、`rx`、`tx`；单包上限 512 字节。CPU/GPU/RAM 必须是 0–100 的有限数字，GPU 允许 `None`，Rx/Tx 必须是非负有限数字；未知版本、缺字段、JSON 错误、越界和超长一律抛 `ValueError`。
 
-- [ ] **步骤 4：运行协议测试确认通过**
+- [x] **步骤 4：运行协议测试确认通过**
 
 运行：`python -m unittest tests.test_protocol -v`  
-预期：3 项测试通过。
+结果：21 项协议测试通过；覆盖字段缺失/多余、非法 UTF-8、重复键、特殊常量、边界包长、GPU 缺失和大整数精确往返。Spec 与代码质量复核均通过。
 
 ## 任务 3：实现 Windows 指标采集
 
