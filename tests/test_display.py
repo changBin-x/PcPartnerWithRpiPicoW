@@ -1,9 +1,26 @@
 import math
 import unittest
 
-from pico.display import TRACK, _text_width, draw_clock, draw_dashboard
-from pico.font_cn import FONT_CN
-from pico.st7735 import ST7735
+from pico.display import TRACK, LINE_BASELINE, _text_width, draw_clock, draw_dashboard
+from pico.font_cn import (
+    ASCII_FONT,
+    ASCII_HEIGHT,
+    ASCII_WIDTH,
+    CHINESE_HEIGHT,
+    CHINESE_WIDTH,
+    CLOCK_DIGIT_HEIGHT,
+    CLOCK_DIGIT_WIDTH,
+    CLOCK_FONT,
+    FONT_CN,
+)
+from tools.build_font import ASCII_CHARACTERS, CHINESE_CHARACTERS, verify_font_set
+from pico.st7735 import (
+    ST7735,
+    blend_rgb565,
+    clock_colon_coverage,
+    pack_coverage,
+    unpack_coverage,
+)
 
 
 class RecordingCanvas:
@@ -22,8 +39,11 @@ class RecordingCanvas:
     def hline(self, x, y, width, color):
         self.calls.append(("line", x, y, width, color))
 
-    def text(self, x, y, value, color, scale=1, background=None):
-        self.calls.append(("text", x, y, value, color, scale, background))
+    def text(self, x, y, value, color, background=None):
+        self.calls.append(("text", x, y, value, color, background))
+
+    def clock_text(self, x, y, value, color, background=None):
+        self.calls.append(("clock", x, y, value, color, background))
 
 
 class RecordingPin:
@@ -40,32 +60,107 @@ class RecordingSPI:
 
 
 class DisplayTests(unittest.TestCase):
-    def test_required_weekday_and_lunar_day_characters_have_glyphs(self):
-        for text in ("星期一", "初一"):
-            missing = [character for character in text if character not in FONT_CN]
-            self.assertEqual(missing, [], "缺少字形: %s" % "".join(missing))
+    def test_coverage_nibbles_round_trip_and_preserve_two_pixels_per_byte(self):
+        coverage = [0, 1, 7, 8, 14, 15]
+        packed = pack_coverage(coverage)
+        self.assertEqual(len(packed), 3)
+        self.assertEqual(unpack_coverage(packed, len(coverage)), coverage)
 
-    def test_driver_does_not_silently_replace_missing_chinese_with_question_mark(self):
+    def test_coverage_blend_produces_intermediate_rgb565_color(self):
+        black = 0x0000
+        white = 0xFFFF
+        half = blend_rgb565(white, black, 8)
+        self.assertNotEqual(half, black)
+        self.assertNotEqual(half, white)
+        self.assertEqual(blend_rgb565(white, black, 0), black)
+        self.assertEqual(blend_rgb565(white, black, 15), white)
+
+    def test_text_glyph_cells_share_baseline_and_use_native_dimensions(self):
+        self.assertEqual((CHINESE_WIDTH, CHINESE_HEIGHT), (14, 14))
+        self.assertEqual((ASCII_WIDTH, ASCII_HEIGHT), (8, 14))
+        self.assertEqual(LINE_BASELINE, 11)
+        self.assertEqual(len(FONT_CN["一"]), 98)
+        self.assertTrue(any(0 < value < 15 for value in unpack_coverage(FONT_CN["中"], 14 * 14)))
+        chinese_phrases = (
+            "星期一", "初一", "丙午年九月廿二", "2026年10月31日",
+            "历日暂不可用", "时间同步中",
+        )
+        for text in chinese_phrases:
+            for character in text:
+                if ord(character) >= 128:
+                    self.assertIn(character, CHINESE_CHARACTERS)
+                    self.assertIn(character, FONT_CN)
+                else:
+                    self.assertIn(character, ASCII_CHARACTERS)
+                    self.assertIn(character, ASCII_FONT)
+        ascii_phrases = ("PC OFFLINE", "NO WIFI", "ETH RX 125.0MB/s", "NTP SYNC UTC+8")
+        for text in ascii_phrases:
+            for character in text:
+                self.assertIn(character, ASCII_CHARACTERS)
+                self.assertIn(character, ASCII_FONT)
+        verify_font_set(FONT_CN, ASCII_FONT, CLOCK_FONT)
+        self.assertEqual(len(ASCII_FONT["1"]), 56)
+        self.assertEqual(_text_width("星期一 10/31"), 90)
+
+    def test_large_clock_digits_have_separate_smooth_glyph_set(self):
+        self.assertEqual((CLOCK_DIGIT_WIDTH, CLOCK_DIGIT_HEIGHT), (14, 26))
+        self.assertTrue(all(len(CLOCK_FONT[digit]) == 182 for digit in "0123456789"))
+        self.assertTrue(any(0 < value < 15 for value in unpack_coverage(CLOCK_FONT["8"], 14 * 26)))
+
+    def test_clock_colon_is_two_round_dots_symmetric_around_center(self):
+        width, height = 8, 26
+        coverage = clock_colon_coverage(width, height)
+        self.assertEqual(len(coverage), width * height)
+        active = {(i % width, i // width) for i, value in enumerate(coverage) if value >= 8}
+        components = []
+        pending = set(active)
+        while pending:
+            component = {pending.pop()}
+            stack = list(component)
+            while stack:
+                x, y = stack.pop()
+                for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if neighbor in pending:
+                        pending.remove(neighbor)
+                        component.add(neighbor)
+                        stack.append(neighbor)
+            components.append(component)
+        self.assertEqual(len(components), 2)
+        centers = [sum(y for _, y in part) / len(part) for part in components]
+        self.assertAlmostEqual(centers[0] + centers[1], height - 1, delta=1)
+        self.assertTrue(all(len(part) >= 4 for part in components))
+
+    def test_driver_rejects_unlisted_cjk_instead_of_substituting_question_mark(self):
         screen = ST7735.__new__(ST7735)
         with self.assertRaisesRegex(ValueError, "缺少中文字形"):
             screen._draw_chinese(0, 0, "龘", 0xFFFF, 0x0000)
 
-    def test_driver_stops_before_emitting_glyphs_past_right_edge(self):
+    def test_driver_clips_ascii_at_right_edge_without_scaling_5x7_font(self):
         screen = ST7735.__new__(ST7735)
         screen.width = 128
         screen.height = 160
         screen.spi = RecordingSPI()
         screen.cs = RecordingPin()
         screen.dc = RecordingPin()
-
+        screen._set_window = lambda *args: None
         screen.text(64, 120, "ABCDEFGHIJKLM", 0xFFFF, background=0)
+        self.assertEqual(len(screen.spi.writes), 1)
+        self.assertEqual(len(screen.spi.writes[0]), 64 * 14 * 2)
 
-        # Ten 6-pixel cells fit from x=64 through x=123; the last three do not.
-        self.assertEqual(len(screen.spi.writes), 10 * 6)
+    def test_glyph_spi_blocks_never_exceed_three_kilobytes(self):
+        screen = ST7735.__new__(ST7735)
+        screen.width = 128
+        screen.height = 160
+        screen.spi = RecordingSPI()
+        screen.cs = RecordingPin()
+        screen.dc = RecordingPin()
+        screen._set_window = lambda *args: None
+        screen.clock_text(12, 34, "15:28:41", 0xFFFF, 0x0000)
+        self.assertEqual(len(screen.spi.writes), 2)
+        self.assertLessEqual(max(len(write) for write in screen.spi.writes), 3072)
 
     def test_dashboard_shows_missing_and_invalid_percentages_as_dashes(self):
         canvas = RecordingCanvas()
-
         draw_dashboard(
             canvas,
             "15:28:41",
@@ -75,17 +170,28 @@ class DisplayTests(unittest.TestCase):
             {"cpu": 38.0, "gpu": None, "ram": math.nan, "rx": 2.3, "tx": 0.4},
             True,
         )
-
         visible_text = [call[3] for call in canvas.calls if call[0] == "text"]
         self.assertIn("--", visible_text)
         self.assertIn("38%", visible_text)
-        self.assertIn("RX 2.3MB/s", visible_text)
-        self.assertIn("TX 0.4MB/s", visible_text)
+        self.assertIn("ETH RX 2.3MB/s", visible_text)
+        self.assertIn("ETH TX 0.4MB/s", visible_text)
         self.assertIn("丙午年九月廿二", visible_text)
+
+    def test_dashboard_keeps_large_ethernet_rates_inside_the_display(self):
+        canvas = RecordingCanvas()
+        draw_dashboard(
+            canvas, "23:59:59", "周六", "10/31", "丙午年九月廿二",
+            {"cpu": 0, "gpu": 0, "ram": 0, "rx": 125.0, "tx": 1260.0}, True,
+        )
+        rate_calls = [
+            call for call in canvas.calls
+            if call[0] == "text" and call[3].startswith("ETH")
+        ]
+        self.assertEqual([call[3] for call in rate_calls], ["ETH RX 125.0MB/s", "ETH TX 1.3e3MB/s"])
+        self.assertTrue(all(call[1] + _text_width(call[3]) <= canvas.width for call in rate_calls))
 
     def test_dashboard_clamps_only_the_bar_for_valid_percentages(self):
         canvas = RecordingCanvas()
-
         draw_dashboard(
             canvas,
             "00:00:00",
@@ -95,56 +201,53 @@ class DisplayTests(unittest.TestCase):
             {"cpu": 50, "gpu": 100, "ram": -1, "rx": None, "tx": float("inf")},
             False,
         )
-
         rectangles = [call for call in canvas.calls if call[0] == "rect"]
         self.assertTrue(all(call[1] >= 0 and call[2] >= 0 for call in rectangles))
         self.assertTrue(all(call[1] + call[3] <= canvas.width for call in rectangles))
         self.assertTrue(all(call[2] + call[4] <= canvas.height for call in rectangles))
-        self.assertTrue(any(call[1:5] == (10, 78, 54, 4) for call in rectangles))
-        self.assertTrue(any(call[1:5] == (10, 104, 108, 4) for call in rectangles))
-        self.assertFalse(
-            any(call[1] == 10 and call[2] == 130 and call[5] != TRACK for call in rectangles)
-        )
+        self.assertTrue(any(call[1:5] == (10, 76, 54, 3) for call in rectangles))
+        self.assertTrue(any(call[1:5] == (10, 98, 108, 3) for call in rectangles))
+        self.assertFalse(any(
+            call[1] == 10 and call[2] == 130 and call[5] != TRACK
+            for call in rectangles
+        ))
         visible_text = [call[3] for call in canvas.calls if call[0] == "text"]
         self.assertIn("--", visible_text)
         self.assertIn("50%", visible_text)
         self.assertIn("100%", visible_text)
-        self.assertIn("RX --MB/s", visible_text)
-        self.assertIn("TX --MB/s", visible_text)
+        self.assertIn("ETH RX --MB/s", visible_text)
+        self.assertIn("ETH TX --MB/s", visible_text)
         for call in canvas.calls:
             if call[0] == "text":
-                self.assertLessEqual(call[1] + _text_width(call[3]) * call[5], canvas.width)
+                self.assertLessEqual(call[1] + _text_width(call[3]), canvas.width)
 
     def test_clock_without_valid_rtc_omits_date_and_shows_sync_message(self):
         canvas = RecordingCanvas()
-
         draw_clock(canvas, None, None, None, None, False, False)
-
         visible_text = [call[3] for call in canvas.calls if call[0] == "text"]
         self.assertIn("时间同步中", visible_text)
         self.assertNotIn("1970", "".join(value for value in visible_text if isinstance(value, str)))
 
-    def test_clock_shows_chinese_date_and_status(self):
+    def test_clock_uses_dedicated_large_time_renderer_and_chinese_date(self):
         canvas = RecordingCanvas()
-
-        draw_clock(
-            canvas,
-            "15:28:41",
-            "2026年10月31日",
-            "星期六",
-            "丙午年九月廿二",
-            True,
-            True,
-        )
-
+        draw_clock(canvas, "15:28:41", "2026年10月31日", "星期六", "丙午年九月廿二", True, True)
+        clock_calls = [call for call in canvas.calls if call[0] == "clock"]
+        self.assertEqual(len(clock_calls), 1)
+        self.assertEqual(clock_calls[0][3], "15:28:41")
         visible_text = [call[3] for call in canvas.calls if call[0] == "text"]
         self.assertIn("2026年10月31日", visible_text)
         self.assertIn("星期六", visible_text)
         self.assertIn("丙午年九月廿二", visible_text)
-        self.assertTrue(any(value.startswith("NTP") for value in visible_text if isinstance(value, str)))
+        self.assertTrue(any(
+            value.startswith("NTP") for value in visible_text if isinstance(value, str)
+        ))
         for call in canvas.calls:
             if call[0] == "text":
-                self.assertLessEqual(call[1] + _text_width(call[3]) * call[5], canvas.width)
+                self.assertLessEqual(call[1] + _text_width(call[3]), canvas.width)
+        self.assertTrue(all(
+            call[2] + (CLOCK_DIGIT_HEIGHT if call[0] == "clock" else 14) <= canvas.height
+            for call in canvas.calls if call[0] in ("text", "clock")
+        ))
 
 
 if __name__ == "__main__":

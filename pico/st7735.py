@@ -1,10 +1,27 @@
-"""Small-area ST7735S driver for a 128x160 Pico W display."""
+"""Small-area anti-aliased ST7735S driver for the 128x160 Pico W display."""
 
 try:
-    from .font_cn import ASCII_FONT, FONT_CN
+    from .font_cn import (
+        ASCII_FONT,
+        ASCII_WIDTH,
+        CHINESE_HEIGHT,
+        CHINESE_WIDTH,
+        CLOCK_DIGIT_HEIGHT,
+        CLOCK_DIGIT_WIDTH,
+        CLOCK_FONT,
+        FONT_CN,
+    )
 except ImportError:
-    # Also allow direct imports when mpremote mounts the pico directory at /remote.
-    from font_cn import ASCII_FONT, FONT_CN
+    from font_cn import (
+        ASCII_FONT,
+        ASCII_WIDTH,
+        CHINESE_HEIGHT,
+        CHINESE_WIDTH,
+        CLOCK_DIGIT_HEIGHT,
+        CLOCK_DIGIT_WIDTH,
+        CLOCK_FONT,
+        FONT_CN,
+    )
 
 
 WIDTH = 128
@@ -24,6 +41,90 @@ def rgb565(red, green, blue):
     """Convert 8-bit RGB channels into the ST7735 16-bit color format."""
     return ((red & 0xF8) << 8) | ((green & 0xFC) << 3) | (blue >> 3)
 
+
+def blend_rgb565(foreground, background, coverage):
+    """Blend RGB565 colors using a 4-bit coverage value from zero to 15."""
+    if coverage <= 0:
+        return background
+    if coverage >= 15:
+        return foreground
+    inverse = 15 - coverage
+    red = (((foreground >> 11) & 31) * coverage + ((background >> 11) & 31) * inverse + 7) // 15
+    green = (((foreground >> 5) & 63) * coverage + ((background >> 5) & 63) * inverse + 7) // 15
+    blue = ((foreground & 31) * coverage + (background & 31) * inverse + 7) // 15
+    return (red << 11) | (green << 5) | blue
+
+
+def pack_coverage(values):
+    """Pack 4-bit pixel coverage, most-significant nibble first."""
+    values = list(values)
+    packed = bytearray((len(values) + 1) // 2)
+    for index, value in enumerate(values):
+        if not isinstance(value, int) or value < 0 or value > 15:
+            raise ValueError("coverage must be an integer from 0 to 15")
+        offset = index >> 1
+        if index & 1:
+            packed[offset] |= value
+        else:
+            packed[offset] = value << 4
+    return bytes(packed)
+
+
+def unpack_coverage(packed, count):
+    """Unpack exactly count coverage values from a nibble array."""
+    if count < 0 or count > len(packed) * 2:
+        raise ValueError("coverage count exceeds packed data")
+    values = []
+    for index in range(count):
+        value = packed[index >> 1]
+        values.append((value & 15) if index & 1 else (value >> 4))
+    return values
+
+
+def clock_colon_coverage(width=8, height=26):
+    """Return a small anti-aliased mask containing two symmetric round dots."""
+    scale = 4
+    centers_y = ((height - 1) / 2.0 - 5.5, (height - 1) / 2.0 + 5.5)
+    center_x = (width - 1) / 2.0
+    radius_squared = 1.75 * 1.75
+    result = []
+    for y in range(height):
+        for x in range(width):
+            inside = 0
+            for sy in range(scale):
+                sample_y = y + (sy + 0.5) / scale
+                for sx in range(scale):
+                    sample_x = x + (sx + 0.5) / scale
+                    for center_y in centers_y:
+                        dx = sample_x - (center_x + 0.5)
+                        dy = sample_y - (center_y + 0.5)
+                        if dx * dx + dy * dy <= radius_squared:
+                            inside = scale * scale
+                            break
+                    if inside == scale * scale:
+                        break
+                if inside == scale * scale:
+                    break
+            # Supersample both circles together, then retain partial edge coverage.
+            if inside == scale * scale:
+                result.append(15)
+                continue
+            samples_inside = 0
+            for sy in range(scale):
+                sample_y = y + (sy + 0.5) / scale
+                for sx in range(scale):
+                    sample_x = x + (sx + 0.5) / scale
+                    for center_y in centers_y:
+                        dx = sample_x - (center_x + 0.5)
+                        dy = sample_y - (center_y + 0.5)
+                        if dx * dx + dy * dy <= radius_squared:
+                            samples_inside += 1
+                            break
+            result.append((samples_inside * 15 + 8) // 16)
+    return tuple(result)
+
+
+CLOCK_COLON_GLYPH = pack_coverage(clock_colon_coverage())
 
 def _color_bytes(color):
     return (color >> 8) & 0xFF, color & 0xFF
@@ -87,7 +188,6 @@ class ST7735:
         self._command(0xC4, b"\x8a\xee")
         self._command(0xC5, b"\x0e")
         self._command(0x20)
-        # MX|MY|BGR: portrait orientation and the BGR panel color order.
         self._command(_MADCTL, b"\xc8")
         self._command(_COLMOD, b"\x05")
         self._command(0xE0, b"\x02\x1c\x07\x12\x37\x32\x29\x2d\x29\x25\x2b\x39\x00\x01\x03\x10")
@@ -98,14 +198,8 @@ class ST7735:
     def _set_window(self, x, y, width, height):
         x_end = x + width - 1
         y_end = y + height - 1
-        self._command(
-            _CASET,
-            bytes((0, x, 0, x_end)),
-        )
-        self._command(
-            _RASET,
-            bytes((0, y, 0, y_end)),
-        )
+        self._command(_CASET, bytes((0, x, 0, x_end)))
+        self._command(_RASET, bytes((0, y, 0, y_end)))
         self._command(_RAMWR)
 
     def _write_rect(self, x, y, width, height, pixels):
@@ -123,7 +217,7 @@ class ST7735:
         self.fill_rect(0, 0, self.width, self.height, color)
 
     def fill_rect(self, x, y, width, height, color):
-        """Fill a clipped rectangle using a single scanline buffer."""
+        """Fill a clipped rectangle using one RGB565 scanline buffer."""
         x_end = min(self.width, x + width)
         y_end = min(self.height, y + height)
         x = max(0, x)
@@ -132,7 +226,6 @@ class ST7735:
         height = y_end - y
         if width <= 0 or height <= 0:
             return
-
         high, low = _color_bytes(color)
         row = bytearray(width * 2)
         for offset in range(0, len(row), 2):
@@ -150,65 +243,105 @@ class ST7735:
     def hline(self, x, y, width, color):
         self.fill_rect(x, y, width, 1, color)
 
-    def _draw_ascii(self, x, y, character, color, background, scale):
-        rows = ASCII_FONT.get(character, ASCII_FONT["?"])
-        cell_width = 6
-        cell_height = 8
-        pixel_width = cell_width * scale
-        pixel_height = cell_height * scale
-        pixels = bytearray(pixel_width * pixel_height * 2)
-        bg_high, bg_low = _color_bytes(background)
-        fg_high, fg_low = _color_bytes(color)
-        for py in range(cell_height):
-            bits = rows[py] if py < len(rows) else 0
-            for px in range(cell_width):
-                foreground = px < 5 and bool(bits & (1 << (4 - px)))
-                value_high, value_low = (fg_high, fg_low) if foreground else (bg_high, bg_low)
-                for dy in range(scale):
-                    for dx in range(scale):
-                        index = ((py * scale + dy) * pixel_width + px * scale + dx) * 2
-                        pixels[index] = value_high
-                        pixels[index + 1] = value_low
-        self._write_rect(x, y, pixel_width, pixel_height, pixels)
-        return pixel_width
+    def _draw_coverage(self, x, y, width, height, packed, color, background):
+        if x < 0 or y < 0 or x + width > self.width or y + height > self.height:
+            return
+        self._draw_glyph_entries(
+            x, y, width, height, ((0, width, packed),), color, background
+        )
+
+    def _draw_glyph_entries(self, x, y, total_width, height, entries, color, background):
+        """Blend glyphs in vertical bands capped at 3 KB, with one SPI window each."""
+        if total_width <= 0 or x < 0 or y < 0:
+            return
+        if x + total_width > self.width or y + height > self.height:
+            return
+        rows_per_block = max(1, 3072 // (total_width * 2))
+        for source_y in range(0, height, rows_per_block):
+            block_height = min(rows_per_block, height - source_y)
+            self._draw_glyph_band(
+                x, y + source_y, total_width, block_height, source_y,
+                entries, color, background
+            )
+
+    def _draw_glyph_band(
+        self, x, y, total_width, height, source_y, entries, color, background
+    ):
+        pixels = bytearray(total_width * height * 2)
+        background_high, background_low = _color_bytes(background)
+        for offset in range(0, len(pixels), 2):
+            pixels[offset] = background_high
+            pixels[offset + 1] = background_low
+        blend_table = tuple(
+            _color_bytes(blend_rgb565(color, background, coverage))
+            for coverage in range(16)
+        )
+        for glyph_x, glyph_width, packed in entries:
+            for row in range(height):
+                source_row = (source_y + row) * glyph_width
+                destination_row = row * total_width + glyph_x
+                for column in range(glyph_width):
+                    pixel_index = source_row + column
+                    byte = packed[pixel_index >> 1]
+                    coverage = (byte & 15) if pixel_index & 1 else (byte >> 4)
+                    high, low = blend_table[coverage]
+                    offset = (destination_row + column) * 2
+                    pixels[offset] = high
+                    pixels[offset + 1] = low
+        self._write_rect(x, y, total_width, height, pixels)
+
+    def _draw_ascii(self, x, y, character, color, background):
+        glyph = ASCII_FONT.get(character)
+        if glyph is None:
+            glyph = ASCII_FONT["?"]
+        self._draw_coverage(x, y, ASCII_WIDTH, ASCII_HEIGHT, glyph, color, background)
+        return ASCII_WIDTH
 
     def _draw_chinese(self, x, y, character, color, background):
-        bitmap = FONT_CN.get(character)
-        if bitmap is None:
+        glyph = FONT_CN.get(character)
+        if glyph is None:
             raise ValueError("缺少中文字形: %s" % character)
-        width = 12
-        height = 12
-        bg_high, bg_low = _color_bytes(background)
-        fg_high, fg_low = _color_bytes(color)
-        pixels = bytearray(width * height * 2)
-        for py in range(height):
-            for px in range(width):
-                bit_index = py * width + px
-                foreground = bool(bitmap[bit_index >> 3] & (1 << (7 - (bit_index & 7))))
-                index = (py * width + px) * 2
-                value_high, value_low = (fg_high, fg_low) if foreground else (bg_high, bg_low)
-                pixels[index] = value_high
-                pixels[index + 1] = value_low
-        self._write_rect(x, y, width, height, pixels)
-        return width
+        self._draw_coverage(x, y, CHINESE_WIDTH, CHINESE_HEIGHT, glyph, color, background)
+        return CHINESE_WIDTH
 
-    def text(self, x, y, value, color, scale=1, background=0x0000):
-        """Draw mixed ASCII/CJK text; each glyph uses at most 384 bytes."""
+    def text(self, x, y, value, color, background=0x0000):
+        """Draw anti-aliased mixed text in one shared-baseline SPI block."""
         if not isinstance(value, str):
             value = str(value)
+        entries = []
+        line_width = 0
         for character in value:
             if ord(character) < 128:
-                width = 6 * scale
-                height = 8 * scale
-                if x + width > self.width:
-                    break
-                if x >= 0 and y >= 0 and y + height <= self.height:
-                    self._draw_ascii(x, y, character, color, background, scale)
+                width = ASCII_WIDTH
+                glyph = ASCII_FONT.get(character, ASCII_FONT["?"])
             else:
-                width = 12
-                height = 12
-                if x + width > self.width:
-                    break
-                if x >= 0 and y >= 0 and y + height <= self.height:
-                    self._draw_chinese(x, y, character, color, background)
-            x += width
+                width = CHINESE_WIDTH
+                glyph = FONT_CN.get(character)
+                if glyph is None:
+                    raise ValueError("缺少中文字形: %s" % character)
+            if x + line_width + width > self.width:
+                break
+            entries.append((line_width, width, glyph))
+            line_width += width
+        self._draw_glyph_entries(
+            x, y, line_width, CHINESE_HEIGHT, entries, color, background
+        )
+
+    def clock_text(self, x, y, value, color, background=0x0000):
+        """Draw a large numeric clock with two smooth, symmetric colon dots."""
+        entries = []
+        advance = 0
+        for character in value:
+            if character == ":":
+                entries.append((advance, 8, CLOCK_COLON_GLYPH))
+                advance += 10
+            else:
+                glyph = CLOCK_FONT.get(character)
+                if glyph is None:
+                    raise ValueError("时钟字形仅支持数字和冒号")
+                entries.append((advance, CLOCK_DIGIT_WIDTH, glyph))
+                advance += CLOCK_DIGIT_WIDTH
+        self._draw_glyph_entries(
+            x, y, advance, CLOCK_DIGIT_HEIGHT, entries, color, background
+        )
+        return advance

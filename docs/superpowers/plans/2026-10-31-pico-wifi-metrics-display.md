@@ -427,27 +427,36 @@ python -m unittest tests.test_lunar -v
 
 ## 任务 6：实现 ST7735S 驱动、中文字形与 B/B 界面
 
-**文件：** 创建 `tools/build_font.py`、`pico/font_cn.py`、`pico/st7735.py`、`pico/display.py`。
+**文件：** `tools/build_font.py`、`pico/font_cn.py`、`pico/st7735.py`、`pico/display.py`、`tests/test_display.py`。
 
-- [ ] **步骤 1：实现小型字符集字形生成器**
+- [x] **步骤 1：生成共享基线的抗锯齿字形**
 
-`tools/build_font.py --font C:\Windows\Fonts\msyh.ttc --size 12 --output pico/font_cn.py` 生成 12×12 点阵的仅需字符集：星期文字、年月日、闰、初一至三十、冬/腊、十天干、十二地支和连接状态字样。生成后校验每个字符恰有 18 字节字形；缺字时构建失败并列出缺字。
+  `tools/build_font.py --font C:\Windows\Fonts\msyh.ttc --ascii-font C:\Windows\Fonts\segoeui.ttf --size 14 --output pico/font_cn.py` 使用 4 倍分辨率渲染，再以 LANCZOS 缩小并量化为 4-bit coverage。中文格为 14×14、ASCII 为 8×14，共享 11px 基线；时钟数字单独生成为 14×26。构建自检校验指定字库覆盖字符和压缩长度，缺字立即失败。
 
-- [ ] **步骤 2：实现 ST7735S 区域绘图**
+- [x] **步骤 2：实现 ST7735S RGB565 混色与小区域 SPI 写入**
 
-根据已确认连线创建 `pico/st7735.py`：SCK=GP18、MOSI=GP19、CS=GP17、RST=GP20、DC=GP21；实现初始化、RGB565 `fill_rect`、ASCII、小型中文字形绘制。不分配整屏 40 KB framebuffer，使用区域 SPI 写入，避免 Wi-Fi/TLS 时占用过多堆内存。
+  保留 GP18/GP19 SPI0、GP17 CS、GP20 RST、GP21 DC 的既有硬件映射。coverage 在驱动中与 RGB565 前景/背景混色；文字按垂直条带绘制且每个 SPI 临时块不超过 3,072 字节；矩形填充使用单行缓存，不分配整屏 framebuffer。正文英文/中文不再缩放 5×7 点阵。
 
-- [ ] **步骤 3：实现在线仪表盘布局**
+- [x] **步骤 3：实现在线仪表盘 B 布局**
 
-`pico/display.py` 实现 `draw_dashboard(time_text, weekday_short, date_text, lunar_text, metrics, wifi_ok)`。按浏览器 B 预览顺序绘制顶部时间/日期/农历，中间 CPU、GPU、RAM 百分比卡片和进度条，底部 ETH Rx/Tx MB/s。深色背景、青色强调，RAM 条用琥珀色；CPU/GPU/RAM 非法或缺失值显示 `--`。
+  保留时间、短日期/周几、干支农历、CPU/GPU/RAM 卡片和 ETH Rx/Tx 的顺序与配色；RAM 使用琥珀色。非法指标显示 `--`，收发速率保持 MB/s 格式，过长数值用紧凑科学记数显示以避免裁切。
 
-- [ ] **步骤 4：实现断连全屏时钟布局**
+- [x] **步骤 4：实现断连时钟 B 布局**
 
-同一文件实现 `draw_clock(time_text, date_text, weekday_full, lunar_text, wifi_ok, time_synced)`。HH:MM:SS 为主视觉，公历日期、完整“星期X”和干支农历紧凑排列，底部状态显示 Wi-Fi 与 NTP；没有有效 RTC 时显示“时间同步中”，不显示默认错误日期。
+  HH:MM:SS 使用专用平滑数字字库；冒号以两个抗锯齿圆点绘制，围绕中线对称。公历日期、完整中文星期、全中文干支农历、Wi-Fi 与 NTP 状态继续使用共享基线正文格。
 
-- [ ] **步骤 5：在 COM4 硬件上静态检查两种画面**
+- [x] **步骤 5：在 COM4 运行固定样例并保留验证边界**
 
-用临时 `pico/main.py` 渲染固定样例后观察屏幕：确认方向、色彩、边界、中文完整、进度条比例正确，并且 128×160 内没有文字截断。先保留现有硬件测试文件；若它在任务 1 仍不存在，测试入口使用本计划新建的驱动。
+  通过 `mpremote connect COM4 mount pico exec ...` 临时挂载驱动，分别绘制仪表盘和时钟固定样例；不复制或覆盖设备根目录文件。运行调用返回成功后，检查方向、实际字边缘、对比度和人眼观感仍需现场观察者完成。
+
+### Task 6 视觉迭代记录（2026-10-31）
+
+- 使用微软雅黑和 Segoe UI 重新生成 56 个中文、71 个 ASCII、10 个大时钟数字字形。字库源文件为 42,385 字节；覆盖字形数据合计 11,284 字节。
+- `python -m unittest tests.test_display -v`：13 项通过，覆盖 coverage 编解码、RGB565 中间色、星期一/初一和状态/日期文案字符覆盖、混排字宽、时钟点状冒号及 128×160 边界。
+- 合并逐字 SPI 窗口前单帧 dashboard 为 949 ms；按文本合并窗口、限制块大小后，COM4 连续轮显两轮得到 dashboard 539/540 ms、clock 455/445 ms，最后停在 dashboard。无 MicroPython 或 SPI 写入异常。
+- 显示模块导入后空闲堆 154,016 B；dashboard、clock 绘制并 `gc.collect()` 后分别为 153,888 B、153,904 B。临时 SPI 块最大 3,072 B；显示模块未分配整屏缓冲。联网/TLS 与完整应用堆峰值属于后续集成验收。
+- `mpremote fs ls :` 在测试前后均返回空根目录，临时挂载没有留下板载文件。
+- 本环境不能读取屏幕像素或观察面板；字形是否显著更平滑、基线是否舒服、颜色和留白是否合眼仍待用户目视确认。本记录不代表视觉验收通过。
 
 ## 任务 7：实现 Wi-Fi、NTP、HKO HTTPS 和 UDP 状态机
 

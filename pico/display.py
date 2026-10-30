@@ -3,9 +3,10 @@
 import math
 
 try:
+    from .font_cn import ASCII_WIDTH, CHINESE_WIDTH, LINE_BASELINE
     from .st7735 import rgb565
 except ImportError:
-    # Also allow direct imports when mpremote mounts the pico directory at /remote.
+    from font_cn import ASCII_WIDTH, CHINESE_WIDTH, LINE_BASELINE
     from st7735 import rgb565
 
 
@@ -51,69 +52,69 @@ def _rate_text(value):
     valid = _safe_rate(value)
     if valid is None:
         return "--"
+    if valid >= 100000000:
+        return ">1e8"
+    if valid >= 1000:
+        mantissa, exponent = ("%.1e" % valid).split("e")
+        return "%se%d" % (mantissa, int(exponent))
     return "%.1f" % valid
 
 
 def _text_width(value):
     width = 0
     for character in value:
-        width += 6 if ord(character) < 128 else 12
+        width += ASCII_WIDTH if ord(character) < 128 else CHINESE_WIDTH
     return width
 
 
-def _centered_text(canvas, y, value, color, scale=1, background=BG):
-    width = _text_width(value) * scale
-    canvas.text(max(0, (canvas.width - width) // 2), y, value, color, scale, background)
+def _centered_text(canvas, y, value, color, background=BG):
+    width = _text_width(value)
+    if width > canvas.width:
+        raise ValueError("文本超出屏幕宽度: %s" % value)
+    canvas.text((canvas.width - width) // 2, y, value, color, background)
 
 
 def _metric_card(canvas, y, name, value, color):
     card_x = 4
     card_width = 120
-    card_height = 24
+    card_height = 20
     canvas.fill_rect(card_x, y, card_width, card_height, CARD)
     canvas.fill_rect(card_x, y, 2, card_height, color)
-
     value_text, percent = _percent_text(value)
-    canvas.text(10, y + 3, name, CYAN_LIGHT, background=CARD)
-    canvas.text(76, y + 1, value_text, TEXT, scale=2, background=CARD)
-
+    canvas.text(10, y + 1, name, CYAN_LIGHT, CARD)
+    canvas.text(82, y + 1, value_text, TEXT, CARD)
     bar_x = 10
-    bar_y = y + 18
+    bar_y = y + 15
     bar_width = 108
-    canvas.fill_rect(bar_x, bar_y, bar_width, 4, TRACK)
+    canvas.fill_rect(bar_x, bar_y, bar_width, 3, TRACK)
     filled = (bar_width * percent + 50) // 100
     if filled:
-        canvas.fill_rect(bar_x, bar_y, filled, 4, color)
+        canvas.fill_rect(bar_x, bar_y, filled, 3, color)
 
 
 def draw_dashboard(canvas, time_text, weekday_short, date_text, lunar_text, metrics, wifi_ok):
     """Draw the metrics-first B layout using a screen-compatible canvas."""
     canvas.fill(BG)
-    canvas.text(4, 3, "PC MONITOR", CYAN_LIGHT, background=BG)
-    canvas.text(100 if wifi_ok else 82, 3, "WIFI" if wifi_ok else "NO WIFI", GREEN if wifi_ok else AMBER, background=BG)
-
+    canvas.text(4, 1, "PC MONITOR", CYAN_LIGHT, BG)
+    wifi_text = "WIFI" if wifi_ok else "NO WIFI"
+    wifi_color = GREEN if wifi_ok else AMBER
+    canvas.text(92 if wifi_ok else 68, 1, wifi_text, wifi_color, BG)
     if time_text:
-        canvas.text(4, 14, time_text, TEXT, scale=2, background=BG)
+        canvas.text(4, 15, time_text, TEXT, BG)
     else:
-        canvas.text(4, 17, "TIME SYNC", MUTED, scale=2, background=BG)
-
+        canvas.text(4, 15, "TIME SYNC", MUTED, BG)
     date_line = "%s %s" % (weekday_short or "", date_text or "")
     if date_line.strip():
-        canvas.text(4, 33, date_line.strip(), MUTED, background=BG)
+        canvas.text(4, 30, date_line.strip(), MUTED, BG)
     if lunar_text:
-        _centered_text(canvas, 45, lunar_text, AMBER, background=BG)
-    canvas.hline(4, 58, 120, CARD)
-
-    _metric_card(canvas, 60, "CPU", metrics.get("cpu"), CYAN)
-    _metric_card(canvas, 86, "GPU", metrics.get("gpu"), CYAN)
-    _metric_card(canvas, 112, "RAM", metrics.get("ram"), AMBER)
-
-    canvas.hline(4, 140, 120, CARD)
-    canvas.text(4, 143, "ETH", MUTED, background=BG)
-    rx = _rate_text(metrics.get("rx"))
-    tx = _rate_text(metrics.get("tx"))
-    canvas.text(4, 151, "RX %sMB/s" % rx, TEXT, background=BG)
-    canvas.text(64, 151, "TX %sMB/s" % tx, TEXT, background=BG)
+        _centered_text(canvas, 45, lunar_text, AMBER, BG)
+    canvas.hline(4, 59, 120, CARD)
+    _metric_card(canvas, 61, "CPU", metrics.get("cpu"), CYAN)
+    _metric_card(canvas, 83, "GPU", metrics.get("gpu"), CYAN)
+    _metric_card(canvas, 105, "RAM", metrics.get("ram"), AMBER)
+    canvas.hline(4, 128, 120, CARD)
+    canvas.text(0, 130, "ETH RX %sMB/s" % _rate_text(metrics.get("rx")), TEXT, BG)
+    canvas.text(0, 145, "ETH TX %sMB/s" % _rate_text(metrics.get("tx")), TEXT, BG)
 
 
 def _valid_time_text(value):
@@ -129,25 +130,23 @@ def _valid_time_text(value):
 
 
 def draw_clock(canvas, time_text, date_text, weekday_full, lunar_text, wifi_ok, time_synced):
-    """Draw the digital-clock B layout without showing an invalid RTC date."""
+    """Draw the clock-first B layout with a dedicated large numeric face."""
     canvas.fill(BG)
-    canvas.text(4, 5, "PC OFFLINE", MUTED, background=BG)
-    canvas.text(100 if wifi_ok else 82, 5, "WIFI" if wifi_ok else "NO WIFI", GREEN if wifi_ok else AMBER, background=BG)
-
+    canvas.text(4, 1, "PC OFFLINE", MUTED, BG)
+    wifi_text = "WIFI" if wifi_ok else "NO WIFI"
+    wifi_color = GREEN if wifi_ok else AMBER
+    canvas.text(92 if wifi_ok else 68, 1, wifi_text, wifi_color, BG)
     if not _valid_time_text(time_text):
-        _centered_text(canvas, 56, "时间同步中", AMBER, background=BG)
-        canvas.hline(8, 137, 112, CARD)
-        _centered_text(canvas, 146, "NTP WAIT UTC+8", MUTED, background=BG)
+        _centered_text(canvas, 60, "时间同步中", AMBER, BG)
+        canvas.hline(8, 136, 112, CARD)
+        _centered_text(canvas, 145, "NTP WAIT UTC+8", MUTED, BG)
         return
-
-    time_width = _text_width(time_text) * 2
-    canvas.text(max(0, (canvas.width - time_width) // 2), 42, time_text, TEXT, scale=2, background=BG)
+    canvas.clock_text(12, 34, time_text, TEXT, BG)
     if date_text:
-        _centered_text(canvas, 78, date_text, MUTED, background=BG)
+        _centered_text(canvas, 77, date_text, MUTED, BG)
     if weekday_full:
-        _centered_text(canvas, 97, weekday_full, CYAN_LIGHT, background=BG)
+        _centered_text(canvas, 96, weekday_full, CYAN_LIGHT, BG)
     if lunar_text:
-        _centered_text(canvas, 118, lunar_text, AMBER, background=BG)
-
-    canvas.hline(8, 137, 112, CARD)
-    _centered_text(canvas, 146, "NTP SYNC UTC+8" if time_synced else "NTP NOT SYNCED", MUTED, background=BG)
+        _centered_text(canvas, 115, lunar_text, AMBER, BG)
+    canvas.hline(8, 136, 112, CARD)
+    _centered_text(canvas, 145, "NTP SYNC UTC+8" if time_synced else "NTP NOT SYNCED", MUTED, BG)
