@@ -95,7 +95,8 @@ def _metric_card(canvas, y, name, value, color):
 def draw_dashboard(canvas, time_text, weekday_short, date_text, lunar_text, metrics, wifi_ok):
     """Draw the metrics-first B layout using a screen-compatible canvas."""
     canvas.fill(BG)
-    canvas.text(4, 1, "PC MONITOR", CYAN_LIGHT, BG)
+    title = "PC MONITOR" if wifi_ok else "PC"
+    canvas.text(4, 1, title, CYAN_LIGHT, BG)
     wifi_text = "WIFI" if wifi_ok else "NO WIFI"
     wifi_color = GREEN if wifi_ok else AMBER
     canvas.text(92 if wifi_ok else 68, 1, wifi_text, wifi_color, BG)
@@ -132,7 +133,8 @@ def _valid_time_text(value):
 def draw_clock(canvas, time_text, date_text, weekday_full, lunar_text, wifi_ok, time_synced):
     """Draw the clock-first B layout with a dedicated large numeric face."""
     canvas.fill(BG)
-    canvas.text(4, 1, "PC OFFLINE", MUTED, BG)
+    title = "PC OFFLINE" if wifi_ok else "PC OFF"
+    canvas.text(4, 1, title, MUTED, BG)
     wifi_text = "WIFI" if wifi_ok else "NO WIFI"
     wifi_color = GREEN if wifi_ok else AMBER
     canvas.text(92 if wifi_ok else 68, 1, wifi_text, wifi_color, BG)

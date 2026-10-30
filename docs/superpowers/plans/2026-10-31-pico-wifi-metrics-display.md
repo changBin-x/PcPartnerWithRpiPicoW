@@ -452,10 +452,11 @@ python -m unittest tests.test_lunar -v
 ### Task 6 视觉迭代记录（2026-10-31）
 
 - 使用微软雅黑和 Segoe UI 重新生成 56 个中文、71 个 ASCII、10 个大时钟数字字形。字库源文件为 42,385 字节；覆盖字形数据合计 11,284 字节。
-- `python -m unittest tests.test_display -v`：13 项通过，覆盖 coverage 编解码、RGB565 中间色、星期一/初一和状态/日期文案字符覆盖、混排字宽、时钟点状冒号及 128×160 边界。
+- `python -m unittest tests.test_display -v`：14 项通过，覆盖 coverage 编解码、RGB565 中间色、星期一/初一和状态/日期文案字符覆盖、混排字宽、时钟点状冒号及 128×160 边界。
 - 合并逐字 SPI 窗口前单帧 dashboard 为 949 ms；按文本合并窗口、限制块大小后，COM4 连续轮显两轮得到 dashboard 539/540 ms、clock 455/445 ms，最后停在 dashboard。无 MicroPython 或 SPI 写入异常。
 - 显示模块导入后空闲堆 154,016 B；dashboard、clock 绘制并 `gc.collect()` 后分别为 153,888 B、153,904 B。临时 SPI 块最大 3,072 B；显示模块未分配整屏缓冲。联网/TLS 与完整应用堆峰值属于后续集成验收。
 - `mpremote fs ls :` 在测试前后均返回空根目录，临时挂载没有留下板载文件。
+- 冒号圆点覆盖率按 4×4 子采样的命中比例计算，测试检查存在中间 coverage；两种布局在 Wi-Fi 在线/离线状态下都验证标题与状态不重叠且位于 128×160 边界内。断网时标题缩为“PC” / “PC OFF”，保留“NO WIFI”状态。
 - 本环境不能读取屏幕像素或观察面板；字形是否显著更平滑、基线是否舒服、颜色和留白是否合眼仍待用户目视确认。本记录不代表视觉验收通过。
 
 ## 任务 7：实现 Wi-Fi、NTP、HKO HTTPS 和 UDP 状态机

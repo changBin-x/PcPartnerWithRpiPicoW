@@ -82,7 +82,7 @@ def unpack_coverage(packed, count):
 
 
 def clock_colon_coverage(width=8, height=26):
-    """Return a small anti-aliased mask containing two symmetric round dots."""
+    """Return 4x4 supersampled coverage for two symmetric round dots."""
     scale = 4
     centers_y = ((height - 1) / 2.0 - 5.5, (height - 1) / 2.0 + 5.5)
     center_x = (width - 1) / 2.0
@@ -90,25 +90,6 @@ def clock_colon_coverage(width=8, height=26):
     result = []
     for y in range(height):
         for x in range(width):
-            inside = 0
-            for sy in range(scale):
-                sample_y = y + (sy + 0.5) / scale
-                for sx in range(scale):
-                    sample_x = x + (sx + 0.5) / scale
-                    for center_y in centers_y:
-                        dx = sample_x - (center_x + 0.5)
-                        dy = sample_y - (center_y + 0.5)
-                        if dx * dx + dy * dy <= radius_squared:
-                            inside = scale * scale
-                            break
-                    if inside == scale * scale:
-                        break
-                if inside == scale * scale:
-                    break
-            # Supersample both circles together, then retain partial edge coverage.
-            if inside == scale * scale:
-                result.append(15)
-                continue
             samples_inside = 0
             for sy in range(scale):
                 sample_y = y + (sy + 0.5) / scale

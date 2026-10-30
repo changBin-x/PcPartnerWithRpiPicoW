@@ -111,6 +111,7 @@ class DisplayTests(unittest.TestCase):
         width, height = 8, 26
         coverage = clock_colon_coverage(width, height)
         self.assertEqual(len(coverage), width * height)
+        self.assertTrue(any(0 < value < 15 for value in coverage))
         active = {(i % width, i // width) for i, value in enumerate(coverage) if value >= 8}
         components = []
         pending = set(active)
@@ -158,6 +159,41 @@ class DisplayTests(unittest.TestCase):
         screen.clock_text(12, 34, "15:28:41", 0xFFFF, 0x0000)
         self.assertEqual(len(screen.spi.writes), 2)
         self.assertLessEqual(max(len(write) for write in screen.spi.writes), 3072)
+
+    def test_wifi_status_never_overlaps_title_in_either_layout(self):
+        for wifi_ok in (True, False):
+            with self.subTest(layout="dashboard", wifi_ok=wifi_ok):
+                canvas = RecordingCanvas()
+                draw_dashboard(
+                    canvas, "15:28:41", "周六", "10/31", "丙午年九月廿二",
+                    {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5},
+                    wifi_ok,
+                )
+                self._assert_header_text_does_not_overlap(canvas)
+            with self.subTest(layout="clock", wifi_ok=wifi_ok):
+                canvas = RecordingCanvas()
+                draw_clock(
+                    canvas, "15:28:41", "2026年10月31日", "星期六",
+                    "丙午年九月廿二", wifi_ok, True,
+                )
+                self._assert_header_text_does_not_overlap(canvas)
+
+    def _assert_header_text_does_not_overlap(self, canvas):
+        header = [call for call in canvas.calls if call[0] == "text" and call[2] == 1]
+        self.assertEqual(len(header), 2)
+        left, right = header
+        left_start = left[1]
+        left_end = left_start + _text_width(left[3])
+        right_start = right[1]
+        right_end = right_start + _text_width(right[3])
+        self.assertGreaterEqual(left_start, 0)
+        self.assertGreaterEqual(right_start, 0)
+        self.assertLessEqual(left_end, canvas.width)
+        self.assertLessEqual(right_end, canvas.width)
+        self.assertTrue(
+            left_end <= right_start or right_end <= left_start,
+            "%s 和 %s 的状态标题重叠" % (left[3], right[3]),
+        )
 
     def test_dashboard_shows_missing_and_invalid_percentages_as_dashes(self):
         canvas = RecordingCanvas()
