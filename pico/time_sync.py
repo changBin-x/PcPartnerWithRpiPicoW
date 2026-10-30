@@ -13,6 +13,11 @@ UTC_OFFSET_SECONDS = 8 * 60 * 60
 RESYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
 _SYNC_RETRY_MS = (30_000, 60_000, 300_000, 900_000)
 _TICKS_PERIOD = 1 << 30
+# This Pico W reports a factory RTC date of 2021-01-01. The 2024 floor keeps
+# that uninitialized value off screen while accepting clocks less than three
+# years behind the application's 2026-10 baseline.
+_MIN_VALID_RTC_YEAR = 2024
+_MAX_VALID_RTC_YEAR = 2199
 _WEEKDAYS_SHORT = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 _WEEKDAYS_FULL = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
 
@@ -85,7 +90,7 @@ def _rtc_tuple_from_unix(unix_seconds):
 
 def _has_plausible_rtc():
     try:
-        return 2020 <= time.gmtime()[0] <= 2199
+        return _MIN_VALID_RTC_YEAR <= time.gmtime()[0] <= _MAX_VALID_RTC_YEAR
     except (OSError, OverflowError, ValueError):
         return False
 
@@ -122,7 +127,7 @@ class TimeSynchronizer:
                 if unix_seconds <= 0:
                     raise ValueError("NTP 返回了非正 Unix 时间")
                 candidate_year = time.gmtime(unix_seconds)[0]
-                if candidate_year < 2020 or candidate_year > 2199:
+                if candidate_year < _MIN_VALID_RTC_YEAR or candidate_year > _MAX_VALID_RTC_YEAR:
                     raise ValueError("NTP 返回时间超出有效年范围")
                 if self._rtc is None:
                     import machine

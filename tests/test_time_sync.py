@@ -1,7 +1,9 @@
 """Host-side tests for NTP packet parsing and RTC scheduling."""
 
 import struct
+import time
 import unittest
+from unittest.mock import patch
 
 from pico.time_sync import (
     NTP_ERA_SECONDS,
@@ -44,6 +46,32 @@ class NtpConversionTests(unittest.TestCase):
 
 
 class TimeSynchronizerTests(unittest.TestCase):
+    def test_factory_default_rtc_is_invalid_but_reasonable_current_rtc_is_valid(self):
+        real_gmtime = time.gmtime
+
+        def rtc_gmtime(year):
+            return (year, 1, 1, 0, 0, 0, 4, 1, 0)
+
+        def patched_gmtime(*args):
+            if not args:
+                return rtc_gmtime(current_year[0])
+            return real_gmtime(*args)
+
+        current_year = [2021]
+        epoch = [1_609_462_492]
+        with patch("pico.time_sync.time.gmtime", side_effect=patched_gmtime), patch(
+            "pico.time_sync.time.time", side_effect=lambda: epoch[0]
+        ):
+            default_snapshot = TimeSynchronizer().snapshot()
+            self.assertIsNone(default_snapshot["time_text"])
+            self.assertIsNone(default_snapshot["date"])
+
+            current_year[0] = 2026
+            epoch[0] = 1_798_000_000
+            current_snapshot = TimeSynchronizer().snapshot()
+            self.assertIsNotNone(current_snapshot["time_text"])
+            self.assertEqual(current_snapshot["year"], 2026)
+
     def test_tries_configured_hosts_in_order_and_schedules_six_hour_refresh(self):
         calls = []
         rtc_values = []
