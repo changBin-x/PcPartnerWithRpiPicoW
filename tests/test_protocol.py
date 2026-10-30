@@ -30,6 +30,38 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_packet(json.dumps(payload).encode())
 
+    def test_rejects_negative_sequence(self):
+        with self.assertRaises(ValueError):
+            encode_packet(-1, 1, 0, None, 0, 0, 0)
+        payload = {"v": 1, "seq": -1, "ts": 1, "cpu": 0, "gpu": None,
+                   "ram": 0, "rx": 0, "tx": 0}
+        with self.assertRaises(ValueError):
+            decode_packet(json.dumps(payload).encode())
+
+    def test_rejects_zero_timestamp(self):
+        with self.assertRaises(ValueError):
+            encode_packet(0, 0, 0, None, 0, 0, 0)
+        payload = {"v": 1, "seq": 0, "ts": 0, "cpu": 0, "gpu": None,
+                   "ram": 0, "rx": 0, "tx": 0}
+        with self.assertRaises(ValueError):
+            decode_packet(json.dumps(payload).encode())
+
+    def test_rejects_negative_rx_rate(self):
+        with self.assertRaises(ValueError):
+            encode_packet(0, 1, 0, None, 0, -0.1, 0)
+        payload = {"v": 1, "seq": 0, "ts": 1, "cpu": 0, "gpu": None,
+                   "ram": 0, "rx": -0.1, "tx": 0}
+        with self.assertRaises(ValueError):
+            decode_packet(json.dumps(payload).encode())
+
+    def test_rejects_negative_tx_rate(self):
+        with self.assertRaises(ValueError):
+            encode_packet(0, 1, 0, None, 0, 0, -0.1)
+        payload = {"v": 1, "seq": 0, "ts": 1, "cpu": 0, "gpu": None,
+                   "ram": 0, "rx": 0, "tx": -0.1}
+        with self.assertRaises(ValueError):
+            decode_packet(json.dumps(payload).encode())
+
     def test_rejects_oversized_packet_on_encode_and_decode(self):
         with self.assertRaises(ValueError):
             encode_packet(10**600, 1, 0, None, 0, 0, 0)
