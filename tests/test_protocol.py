@@ -97,12 +97,32 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_packet(packet)
 
+    def test_large_integer_throughput_round_trips_exactly(self):
+        throughput = 10**400
+        packet = encode_packet(0, 1, 0, None, 0, throughput, 0)
+        self.assertLessEqual(len(packet), MAX_PACKET_BYTES)
+        decoded = decode_packet(packet)
+        self.assertEqual(decoded["rx"], throughput)
+        self.assertIsInstance(decoded["rx"], int)
+        self.assertEqual(decoded["tx"], 0)
+
+    def test_invalid_throughput_values_raise_value_error(self):
+        for value in (-1, True, "1", float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                encode_packet(0, 1, 0, None, 0, value, 0)
+        for value in (-1, True, "1", float("nan"), float("inf"), float("-inf")):
+            payload = {"v": 1, "seq": 0, "ts": 1, "cpu": 0, "gpu": None,
+                       "ram": 0, "rx": value, "tx": 0}
+            encoded = json.dumps(payload, allow_nan=True).encode()
+            with self.subTest(decoded_value=value), self.assertRaises(ValueError):
+                decode_packet(encoded)
+
     def test_encode_packet_uses_compact_json(self):
         packet = encode_packet(0, 1, 0, None, 0, 0, 0)
         self.assertEqual(
             packet,
-            b'{"v":1,"seq":0,"ts":1,"cpu":0.0,"gpu":null,'
-            b'"ram":0.0,"rx":0.0,"tx":0.0}',
+            b'{"v":1,"seq":0,"ts":1,"cpu":0,"gpu":null,'
+            b'"ram":0,"rx":0,"tx":0}',
         )
         self.assertNotIn(b" ", packet)
 

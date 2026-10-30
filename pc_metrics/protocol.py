@@ -19,19 +19,21 @@ def _number(
     value: Any,
     *,
     minimum: float,
-    maximum: float | None = None,
+    maximum: int | float | None = None,
     allow_none: bool = False,
     field: str,
-) -> float | None:
+) -> int | float | None:
     if value is None and allow_none:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} 必须是数字")
-    try:
-        number = float(value)
-    except (OverflowError, ValueError) as exc:
-        raise ValueError(f"{field} 超出有效范围") from exc
-    if not math.isfinite(number) or number < minimum or (maximum is not None and number > maximum):
+    if isinstance(value, int):
+        number = value
+    else:
+        if not math.isfinite(value):
+            raise ValueError(f"{field} 超出有效范围")
+        number = value
+    if number < minimum or (maximum is not None and number > maximum):
         raise ValueError(f"{field} 超出有效范围")
     return number
 
