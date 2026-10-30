@@ -68,6 +68,44 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_packet(b" " * (MAX_PACKET_BYTES + 1))
 
+    def test_accepts_packet_exactly_at_byte_limit(self):
+        compact = encode_packet(0, 1, 0, None, 0, 0, 0)
+        packet = compact[:-1] + b" " * (MAX_PACKET_BYTES - len(compact)) + b"}"
+        self.assertEqual(len(packet), MAX_PACKET_BYTES)
+        self.assertEqual(decode_packet(packet)["seq"], 0)
+
+    def test_rejects_duplicate_json_keys(self):
+        packet = (b'{"v":1,"seq":0,"ts":1,"cpu":0,"gpu":null,'
+                  b'"ram":0,"rx":0,"tx":0,"seq":0}')
+        with self.assertRaises(ValueError):
+            decode_packet(packet)
+
+    def test_rejects_invalid_utf8(self):
+        packet = b'{"v":1,"seq":0,"ts":1,"cpu":0,"gpu":null,'
+        packet += b'"ram":0,"rx":0,"tx":0}\xff'
+        with self.assertRaises(ValueError):
+            decode_packet(packet)
+
+    def test_rejects_top_level_non_object(self):
+        packet = b'["v","seq","ts","cpu","gpu","ram","rx","tx"]'
+        with self.assertRaises(ValueError):
+            decode_packet(packet)
+
+    def test_rejects_exponent_overflow(self):
+        packet = (b'{"v":1,"seq":0,"ts":1,"cpu":0,"gpu":null,'
+                  b'"ram":0,"rx":1e999,"tx":0}')
+        with self.assertRaises(ValueError):
+            decode_packet(packet)
+
+    def test_encode_packet_uses_compact_json(self):
+        packet = encode_packet(0, 1, 0, None, 0, 0, 0)
+        self.assertEqual(
+            packet,
+            b'{"v":1,"seq":0,"ts":1,"cpu":0.0,"gpu":null,'
+            b'"ram":0.0,"rx":0.0,"tx":0.0}',
+        )
+        self.assertNotIn(b" ", packet)
+
     def test_rejects_invalid_json(self):
         with self.assertRaises(ValueError):
             decode_packet(b"{")
