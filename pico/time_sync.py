@@ -18,6 +18,7 @@ _TICKS_PERIOD = 1 << 30
 # years behind the application's 2026-10 baseline.
 _MIN_VALID_RTC_YEAR = 2024
 _MAX_VALID_RTC_YEAR = 2199
+_MIN_NTP_ERA_HINT_YEAR = 2000
 _WEEKDAYS_SHORT = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 _WEEKDAYS_FULL = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
 
@@ -95,6 +96,18 @@ def _has_plausible_rtc():
         return False
 
 
+def _ntp_era_hint():
+    """Use a plausible epoch RTC as an NTP-era hint, even if stale for display."""
+    try:
+        rtc_unix = time.time()
+        rtc_year = time.gmtime(rtc_unix)[0]
+    except (OSError, OverflowError, ValueError):
+        return None
+    if _MIN_NTP_ERA_HINT_YEAR <= rtc_year <= _MAX_VALID_RTC_YEAR:
+        return rtc_unix
+    return None
+
+
 class TimeSynchronizer:
     """Synchronize the RTC from NTP and keep it in UTC."""
 
@@ -118,9 +131,9 @@ class TimeSynchronizer:
         ):
             return self.synced
 
-        approximate_unix = None
-        if _has_plausible_rtc():
-            approximate_unix = time.time()
+        # The Pico W factory RTC (2021) is too stale to display, but remains a
+        # useful era anchor for resolving the NTP seconds rollover in 2036.
+        approximate_unix = _ntp_era_hint()
         for host in NTP_HOSTS:
             try:
                 unix_seconds = self._query_host(host, approximate_unix)

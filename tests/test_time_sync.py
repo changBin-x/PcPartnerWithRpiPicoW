@@ -72,6 +72,48 @@ class TimeSynchronizerTests(unittest.TestCase):
             self.assertIsNotNone(current_snapshot["time_text"])
             self.assertEqual(current_snapshot["year"], 2026)
 
+    def test_factory_rtc_anchors_cold_start_ntp_after_2036_era_rollover(self):
+        real_gmtime = time.gmtime
+        factory_epoch = 1_609_462_625
+        ntp_after_rollover = NTP_ERA_SECONDS - NTP_UNIX_OFFSET + 60
+        calls = []
+        rtc_values = []
+
+        def patched_gmtime(*args):
+            if not args:
+                return (2021, 1, 1, 0, 57, 5, 4, 1, 0)
+            return real_gmtime(*args)
+
+        class FakeRtc:
+            def datetime(self, value):
+                rtc_values.append(value)
+
+        def query(_host, approximate_unix):
+            calls.append(approximate_unix)
+            return ntp_seconds_to_unix(60, approximate_unix)
+
+        sync = TimeSynchronizer(rtc=FakeRtc(), query_host=query)
+        with patch("pico.time_sync.time.gmtime", side_effect=patched_gmtime), patch(
+            "pico.time_sync.time.time", return_value=factory_epoch
+        ):
+            self.assertIsNone(sync.snapshot()["time_text"])
+            self.assertTrue(sync.sync_if_due(100, wifi_connected=True))
+
+        self.assertEqual(calls, [factory_epoch])
+        ntp_parts = real_gmtime(ntp_after_rollover)
+        expected_rtc = (
+            ntp_parts[0],
+            ntp_parts[1],
+            ntp_parts[2],
+            ntp_parts[6],
+            ntp_parts[3],
+            ntp_parts[4],
+            ntp_parts[5],
+            0,
+        )
+        self.assertEqual(rtc_values, [expected_rtc])
+        self.assertEqual(expected_rtc[0], 2036)
+
     def test_tries_configured_hosts_in_order_and_schedules_six_hour_refresh(self):
         calls = []
         rtc_values = []

@@ -162,6 +162,7 @@ HKO_API_TIMEOUT_SECONDS = 2
 _HKO_API_RETRY_MS = (60_000, 300_000, 1_800_000, 21_600_000)
 _TICKS_PERIOD = 1 << 30
 _DAY_NAMES = tuple(_day_name(day) for day in range(1, 31))
+_HKO_MONTH_ALIASES = (("十一月", "冬月"), ("十二月", "腊月"))
 
 
 def _ticks_diff(ticks1, ticks2):
@@ -204,6 +205,15 @@ def parse_hko_api_payload(payload):
         raise ValueError("HKO 干支年不在六十甲子范围内")
 
     simplified_date = lunar_date.replace("閏", "闰").replace("臘", "腊")
+    for hko_month, display_month in _HKO_MONTH_ALIASES:
+        leap_prefix = "闰" + hko_month
+        if simplified_date.startswith(leap_prefix):
+            simplified_date = "闰" + display_month + simplified_date[len(leap_prefix) :]
+            break
+        if simplified_date.startswith(hko_month):
+            simplified_date = display_month + simplified_date[len(hko_month) :]
+            break
+
     normalized_date = None
     month_names = tuple(sorted(_MONTH_NAMES[1:], key=len, reverse=True))
     for month_name in month_names:

@@ -26,6 +26,13 @@ class HkoApiParsingTests(unittest.TestCase):
 
         self.assertEqual(parse_hko_api_payload(payload), "丙午年十月初十")
 
+    def test_normalizes_hko_november_and_december_month_names(self):
+        november = {"LunarYear": "丙午年，馬", "LunarDate": "十一月三十"}
+        december = {"LunarYear": "丙午年，馬", "LunarDate": "十二月初二"}
+
+        self.assertEqual(parse_hko_api_payload(november), "丙午年冬月三十")
+        self.assertEqual(parse_hko_api_payload(december), "丙午年腊月初二")
+
     def test_rejects_malformed_lunar_api_payload(self):
         for payload in (
             {},
