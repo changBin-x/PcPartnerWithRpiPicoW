@@ -44,6 +44,7 @@
 | `pico/udp_receiver.py` | UDP 广播监听、JSON 校验和最新包维护 |
 | `pico/time_sync.py` | 多个 NTP 主机重试、UTC RTC 和 UTC+8 格式化 |
 | `pico/lunar.py` | 板载年表查询、HKO API 解析、繁转简和日期校验 |
+| `pico/hko_root_ca.pem` | 香港邮政 Root CA 3 的 PEM 信任锚，仅用于 HKO HTTPS 证书链校验 |
 | `pico/lunar_table.bin` | 由官方历表构建的 1901–2100 紧凑数据文件 |
 | `pico/wifi_secrets.example.py` | 不含真实密码的本地配置模板 |
 | `tests/test_protocol.py` | 主机协议和异常输入测试 |
@@ -51,6 +52,9 @@
 | `tests/test_collectors.py` | 主机速率换算与采集器测试 |
 | `tests/test_broadcaster.py` | IPv4 广播目标计算与非法网卡配置测试 |
 | `tests/test_lunar.py` | 农历边界、干支、繁简和已知日期测试 |
+| `tests/test_lunar_api.py` | HKO API 响应转换、本地优先和支持年份边界测试 |
+| `tests/test_time_sync.py` | NTP 时间戳、服务器响应、RTC 调度测试 |
+| `tests/test_wifi.py` | Wi-Fi 无凭据、重连和非阻塞超时测试 |
 | `tests/test_app_state.py` | 新包、断线阈值和恢复状态测试 |
 
 ## 任务 1：确认工作区、硬件和部署工具
@@ -464,7 +468,7 @@ PASSWORD = ""
 
 - [ ] **步骤 3：实现 HKO API 安全请求和边界处理**
 
-`pico/lunar.py` 对 `https://data.weather.gov.hk/weatherAPI/opendata/lunardate.php?date=YYYY-MM-DD` 发 HTTPS GET，设置最多 2 秒超时和 SNI，先校时再用 `ssl.CERT_REQUIRED` 与 CA 信任链验证证书。先显示本地年表结果，再在开机/日期变化时至多请求一次；只解析 `LunarYear`/`LunarDate`，繁体转简体、移除生肖和标点。API 失败时继续用有效本地表；不按秒请求，重试间隔逐步增加。
+`pico/lunar.py` 对 `https://data.weather.gov.hk/weatherAPI/opendata/lunardate.php?date=YYYY-MM-DD` 发 HTTPS GET，设置 2 秒套接字超时和 SNI，先校时再用 `ssl.CERT_REQUIRED` 与 CA 信任链验证证书。DNS `getaddrinfo()` 不受套接字超时约束。先显示本地年表结果，再在开机/日期变化时低频请求；只解析 `LunarYear`/`LunarDate`，繁体转简体、移除生肖和标点。API 失败时继续用有效本地表；不按秒请求，重试间隔逐步增加。
 
 - [ ] **步骤 4：实现 UDP 接收和三秒超时状态**
 
@@ -473,6 +477,14 @@ PASSWORD = ""
 - [ ] **步骤 5：用主机单元测试覆盖状态机和数据异常**
 
 在 `tests/test_app_state.py` 验证：刚收到数据为 `dashboard`、2999 ms 为 `dashboard`、3000 ms 及以上为 `clock`、恢复有效包后为 `dashboard`、无效包不刷新超时。运行：`python -m unittest discover -s tests -v`。预期：协议、采集器、日历和状态机测试全部通过。
+
+### Task 7 实施证据与限制（2026-10-31）
+
+- HKO Open Data API 文档 1.13（2025-09）规定公历/农历转换接口只支持当前年份及之后两年；实现会在请求前拒绝不支持的年份和无效公历日期。接口为 `https://data.weather.gov.hk/weatherAPI/opendata/lunardate.php?date=YYYY-MM-DD`，返回 `LunarYear` 与 `LunarDate`。
+- COM4 上 MicroPython 1.29.0 只读探测确认 `SSLContext`、`CERT_REQUIRED`、`load_verify_locations(cadata=...)` 和 `server_hostname` 接口可用；Root CA 3 PEM 已在该固件上成功加载。实现只信任香港邮政官方 Root CA 3，不把中间 CA 设为信任锚。
+- Windows `requests` 当前请求 HKO 返回 HTTP 200，且用 Root CA 3 单独校验证书链时通过；观察到的服务端证书 issuer 为 `Hongkong Post e-Cert SSL CA 3 - 17`。香港邮政官方 [CA 状态页](https://www.hongkongpost.gov.hk/product/download/root/index_text.html) 明确称该 Sub CA 于 2026-06-11 已撤销。MicroPython 1.29.0 公布的 SSL API 支持 CA 链、`CERT_REQUIRED` 和 SNI，但未提供 CRL/OCSP 校验设置；因此代码只声称链和主机名校验，不声称完成证书撤销检查。HKO 本地表优先，在线结果不覆盖有效本地日期；API/TLS 失败时继续显示本地结果。
+- HKO/NTP 套接字连接与 I/O 分别设置 2 秒/1.5 秒套接字超时；`socket.getaddrinfo()` 是阻塞 DNS 调用，不受套接字超时约束，因此无法保证总请求耗时上限，DNS 阶段可能暂时暂停主循环。HKO 请求安排在首帧绘制后，失败只保留本地农历；目标路由上的实际延迟仍需现场测量。
+- Windows `curl.exe` 与 `requests` 使用的网络代理路径不同：`curl.exe` 解析到 FlClash 的 `198.18.0.72` 后 5 秒超时，不能当作 Pico 路由器网络的可达性结论。COM4 仅验证了 SSL API 和 CA 文件加载，未进行 Pico Wi-Fi、NTP 或 HKO HTTPS 实际连接；因为本地 `pico/wifi_secrets.py` 不存在，本次只检查文件是否存在，没有读取内容。任务 8 必须由用户填写本地 Wi-Fi 配置后，在目标路由器上验证，并分别记录 API 与撤销状态结果；不得把主机 HTTP 200 或 SSL 接口存在写成 Pico 现场访问已通过。
 
 ## 任务 8：接入自动启动、部署并进行现场网络验收
 
