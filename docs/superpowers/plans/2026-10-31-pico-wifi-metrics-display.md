@@ -32,7 +32,7 @@
 | `pc_metrics/broadcaster.py` | 绑定有线网卡并发送 UDP 子网广播 |
 | `pc_metrics/host.py` | 主机端启动循环、采样节奏、日志和退出处理 |
 | `tools/start_metrics.ps1` | Windows 手动启动入口 |
-| `tools/build_lunar_table.py` | 从 HKO 官方年度对照 PDF 生成紧凑板载年表 |
+| `tools/build_lunar_table.py` | 从 HKO 官方逐日对照文本生成紧凑板载年表 |
 | `tools/build_font.py` | 将指定 CJK 字体生成 Pico 可用的字形子集 |
 | `pico/main.py` | MicroPython 自动启动入口和顶层异常恢复 |
 | `pico/__init__.py` | 让源目录可作为 MicroPython/Python 包导入 |
@@ -375,11 +375,11 @@ def send_packet(sock, packet, broadcast_address, port=8765):
 
 **文件：** 创建 `requirements-build.txt`、`tools/build_lunar_table.py`、`pico/lunar_table.bin`、`tests/test_lunar.py`。
 
-- [ ] **步骤 1：锁定官方数据输入与构建工具**
+- [x] **步骤 1：锁定官方数据输入与构建工具**
 
-`requirements-build.txt` 使用 `requests` 与 `PyMuPDF` 作为仅构建期依赖。生成器从 HKO 官方公历/农历对照页面的年度 PDF 下载 1901–2100 年数据；不把请求库或 PDF 解析器放进 Pico 运行时。
+`requirements-build.txt` 仅使用 `requests` 作为构建期依赖。生成器从 HKO 官方公历/农历对照页面下载 1901–2100 年逐年纯文本表（索引：`https://www.hko.gov.hk/tc/gts/time/conversion1_text.htm`；年度文件：`https://www.hko.gov.hk/tc/gts/time/calendar/text/files/T{year}c.txt`）。这是与年度 PDF 同源的官方逐日数据，字段更便于确定性解析和日期连续性校验；不把请求库放进 Pico 运行时。
 
-- [ ] **步骤 2：写入固定日期回归测试**
+- [x] **步骤 2：写入固定日期回归测试**
 
 在 `tests/test_lunar.py` 加入：
 
@@ -399,15 +399,15 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **步骤 3：实现年表生成器**
+- [x] **步骤 3：实现年表生成器**
 
-运行接口固定为：`python tools/build_lunar_table.py --start 1901 --end 2100 --output pico/lunar_table.bin`。生成器下载并解析 HKO 年度表，将每个公历日映射压缩为农历年索引、月序/闰月标记和日序；验证 1901–2100 每个公历日均只有一条记录、没有日期缺口或重复，失败时以非零码退出。
+运行接口固定为：`python tools/build_lunar_table.py --start 1901 --end 2100 --output pico/lunar_table.bin`。生成器下载并解析 HKO 逐日文本表，将每个公历日映射压缩为干支年索引、月序/闰月标记和日序；验证 1901–2100 每个公历日均只有一条记录、没有日期缺口或重复，失败时以非零码退出。
 
-- [ ] **步骤 4：实现 MicroPython 查询和显示格式化**
+- [x] **步骤 4：实现 MicroPython 查询和显示格式化**
 
 `pico/lunar.py` 从 `lunar_table.bin` 查找日期，返回简体农历月份/日期及干支年，例如 `丙午年九月廿二`。闰月以“闰”字标记，不加“农历”前缀；年表范围外返回 `None`，由 API 层处理。对 2026-10-31、春节前一天、春节当天、闰月首尾和每种月长增加断言。
 
-- [ ] **步骤 5：生成数据并运行日历测试**
+- [x] **步骤 5：生成数据并运行日历测试**
 
 运行：
 
@@ -417,7 +417,7 @@ python tools/build_lunar_table.py --start 1901 --end 2100 --output pico/lunar_ta
 python -m unittest tests.test_lunar -v
 ```
 
-预期：生成文件覆盖 73,049 个公历日期；测试结果与 HKO 年度表及 API 支持日期的响应一致。记录 HKO 对 2057、2089、2097 年若干天文交界日期的官方不确定性说明。
+结果：HKO 1901–2100 年逐日文件全部下载并校验，生成 73,049 条记录、219,157 字节年表；7 项 `tests.test_lunar` 测试通过。2025-07-25、2026-02-16、2026-02-17、2026-10-31 四个在线 API 支持日期与本地格式结果一致。HKO 注明 2057-09-28、2089-09-04、2097-08-07 新月交界日可能相差一天；本地数据遵循其公布版本。
 
 ## 任务 6：实现 ST7735S 驱动、中文字形与 B/B 界面
 
