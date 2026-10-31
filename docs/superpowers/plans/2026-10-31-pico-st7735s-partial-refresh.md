@@ -23,7 +23,7 @@
 
 **文件：** 修改 `tests/test_display.py`。
 
-- [ ] **步骤 1：增加显示帧辅助函数和局部刷新回归测试**
+- [x] **步骤 1：增加显示帧辅助函数和局部刷新回归测试**
 
 在文件中现有 `RecordingCanvas` 定义之后加入辅助函数和测试类。它们使用现有 `RecordingCanvas`，并调用后续实现的 `previous` 参数：
 
@@ -213,7 +213,7 @@ class PartialRefreshTests(unittest.TestCase):
         self.assertFalse(any(call[0] == "text" and call[2] == 1 for call in canvas.calls))
 ```
 
-- [ ] **步骤 2：运行目标测试确认失败**
+- [x] **步骤 2：运行目标测试确认失败**
 
 运行：`./.venv/Scripts/python.exe -m unittest tests.test_display.PartialRefreshTests -v`
 

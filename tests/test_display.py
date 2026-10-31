@@ -286,5 +286,190 @@ class DisplayTests(unittest.TestCase):
         ))
 
 
+def _draw_dashboard_frame(canvas, metrics, previous=None, **changes):
+    values = {
+        "time_text": "15:28:41",
+        "weekday_short": "周六",
+        "date_text": "10/31",
+        "lunar_text": "丙午年九月廿二",
+        "metrics": metrics,
+        "wifi_ok": True,
+    }
+    values.update(changes)
+    return draw_dashboard(
+        canvas,
+        values["time_text"],
+        values["weekday_short"],
+        values["date_text"],
+        values["lunar_text"],
+        values["metrics"],
+        values["wifi_ok"],
+        previous=previous,
+    )
+
+
+def _draw_clock_frame(canvas, time_text="15:28:41", previous=None, **changes):
+    values = {
+        "date_text": "2026年10月31日",
+        "weekday_full": "星期六",
+        "lunar_text": "丙午年九月廿二",
+        "wifi_ok": True,
+        "time_synced": True,
+        "needs_config": False,
+    }
+    values.update(changes)
+    return draw_clock(
+        canvas,
+        time_text,
+        values["date_text"],
+        values["weekday_full"],
+        values["lunar_text"],
+        values["wifi_ok"],
+        values["time_synced"],
+        previous=previous,
+        needs_config=values["needs_config"],
+    )
+
+
+class PartialRefreshTests(unittest.TestCase):
+    def test_unchanged_dashboard_frame_performs_no_writes(self):
+        canvas = RecordingCanvas()
+        metrics = {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5}
+        previous = _draw_dashboard_frame(canvas, metrics)
+        self.assertIn("fill", [call[0] for call in canvas.calls])
+
+        canvas.calls.clear()
+        current = _draw_dashboard_frame(canvas, dict(metrics, cpu=20.4), previous)
+
+        self.assertEqual(current, previous)
+        self.assertEqual(canvas.calls, [])
+
+    def test_dashboard_cpu_change_repaints_only_cpu_card(self):
+        canvas = RecordingCanvas()
+        metrics = {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5}
+        previous = _draw_dashboard_frame(canvas, metrics)
+        canvas.calls.clear()
+
+        changed = dict(metrics, cpu=21)
+        _draw_dashboard_frame(canvas, changed, previous)
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertTrue(canvas.calls)
+        for call in canvas.calls:
+            if call[0] == "rect":
+                self.assertGreaterEqual(call[2], 61)
+                self.assertLess(call[2] + call[4], 83)
+            elif call[0] == "text":
+                self.assertIn(call[3], ("CPU", "21%"))
+
+    def test_clock_second_change_repaints_only_time_band(self):
+        canvas = RecordingCanvas()
+        previous = _draw_clock_frame(canvas)
+        canvas.calls.clear()
+
+        _draw_clock_frame(canvas, "15:28:42", previous)
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertTrue(canvas.calls)
+        for call in canvas.calls:
+            self.assertIn(call[0], ("rect", "clock"))
+            if call[0] == "rect":
+                self.assertGreaterEqual(call[2], 34)
+                self.assertLess(call[2] + call[4], 61)
+
+    def test_switching_layout_forces_full_redraw(self):
+        canvas = RecordingCanvas()
+        previous = _draw_clock_frame(canvas)
+        canvas.calls.clear()
+
+        _draw_dashboard_frame(
+            canvas,
+            {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5},
+            previous,
+        )
+
+        self.assertIn("fill", [call[0] for call in canvas.calls])
+
+    def test_dashboard_date_change_updates_only_date_row(self):
+        canvas = RecordingCanvas()
+        metrics = {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5}
+        previous = _draw_dashboard_frame(canvas, metrics)
+        canvas.calls.clear()
+
+        _draw_dashboard_frame(
+            canvas, metrics, previous, weekday_short="周日", date_text="11/01"
+        )
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertTrue(canvas.calls)
+        for call in canvas.calls:
+            if call[0] == "rect":
+                self.assertGreaterEqual(call[2], 30)
+                self.assertLess(call[2] + call[4], 45)
+            elif call[0] == "text":
+                self.assertEqual(call[2], 30)
+
+    def test_dashboard_wifi_change_updates_only_header(self):
+        canvas = RecordingCanvas()
+        metrics = {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5}
+        previous = _draw_dashboard_frame(canvas, metrics)
+        canvas.calls.clear()
+
+        _draw_dashboard_frame(canvas, metrics, previous, wifi_ok=False)
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertTrue(canvas.calls)
+        for call in canvas.calls:
+            if call[0] == "rect":
+                self.assertLess(call[2] + call[4], 15)
+            elif call[0] == "text":
+                self.assertEqual(call[2], 1)
+
+    def test_dashboard_rate_change_updates_only_its_row(self):
+        for key, row_y in (("rx", 130), ("tx", 145)):
+            with self.subTest(key=key):
+                canvas = RecordingCanvas()
+                metrics = {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5}
+                previous = _draw_dashboard_frame(canvas, metrics)
+                canvas.calls.clear()
+
+                _draw_dashboard_frame(canvas, dict(metrics, **{key: 2.0}), previous)
+
+                self.assertNotIn("fill", [call[0] for call in canvas.calls])
+                self.assertTrue(canvas.calls)
+                for call in canvas.calls:
+                    if call[0] == "rect":
+                        self.assertGreaterEqual(call[2], row_y)
+                        self.assertLess(call[2] + call[4], row_y + 15)
+                    elif call[0] == "text":
+                        self.assertEqual(call[2], row_y)
+
+    def test_clock_sync_change_updates_only_footer(self):
+        canvas = RecordingCanvas()
+        previous = _draw_clock_frame(canvas)
+        canvas.calls.clear()
+
+        _draw_clock_frame(canvas, previous=previous, time_synced=False)
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertTrue(canvas.calls)
+        for call in canvas.calls:
+            if call[0] == "rect":
+                self.assertGreaterEqual(call[2], 145)
+            elif call[0] == "text":
+                self.assertEqual(call[2], 145)
+
+    def test_invalid_to_valid_clock_repaints_content_without_header(self):
+        canvas = RecordingCanvas()
+        previous = _draw_clock_frame(canvas, time_text=None)
+        canvas.calls.clear()
+
+        _draw_clock_frame(canvas, "15:28:42", previous)
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertTrue(canvas.calls)
+        self.assertFalse(any(call[0] == "text" and call[2] == 1 for call in canvas.calls))
+
+
 if __name__ == "__main__":
     unittest.main()
