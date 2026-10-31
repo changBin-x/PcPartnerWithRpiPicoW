@@ -470,6 +470,49 @@ class PartialRefreshTests(unittest.TestCase):
         self.assertTrue(canvas.calls)
         self.assertFalse(any(call[0] == "text" and call[2] == 1 for call in canvas.calls))
 
+    def test_unchanged_clock_frame_performs_no_writes(self):
+        canvas = RecordingCanvas()
+        previous = _draw_clock_frame(canvas)
+        canvas.calls.clear()
+
+        current = _draw_clock_frame(canvas, previous=previous)
+
+        self.assertEqual(current, previous)
+        self.assertEqual(canvas.calls, [])
+
+    def test_clock_lunar_change_updates_only_lunar_row(self):
+        canvas = RecordingCanvas()
+        previous = _draw_clock_frame(canvas)
+        canvas.calls.clear()
+
+        _draw_clock_frame(canvas, previous=previous, lunar_text="丙午年九月廿三")
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertTrue(canvas.calls)
+        for call in canvas.calls:
+            if call[0] == "rect":
+                self.assertGreaterEqual(call[2], 115)
+                self.assertLess(call[2] + call[4], 130)
+            elif call[0] == "text":
+                self.assertEqual(call[2], 115)
+
+    def test_clock_config_change_updates_only_config_and_overlapping_time(self):
+        canvas = RecordingCanvas()
+        previous = _draw_clock_frame(canvas)
+        canvas.calls.clear()
+
+        _draw_clock_frame(canvas, previous=previous, needs_config=True)
+
+        self.assertNotIn("fill", [call[0] for call in canvas.calls])
+        self.assertIn("WIFI CONFIG", [call[3] for call in canvas.calls if call[0] == "text"])
+        for call in canvas.calls:
+            if call[0] == "rect":
+                self.assertTrue(23 <= call[2] < 38)
+            elif call[0] == "clock":
+                self.assertEqual(call[2], 34)
+            elif call[0] == "text":
+                self.assertEqual(call[2], 23)
+
 
 if __name__ == "__main__":
     unittest.main()

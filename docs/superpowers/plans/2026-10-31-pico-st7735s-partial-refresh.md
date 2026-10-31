@@ -223,7 +223,7 @@ class PartialRefreshTests(unittest.TestCase):
 
 **文件：** 修改 `tests/test_display.py`、`pico/display.py`。
 
-- [ ] **步骤 1：为现有全量绘制函数增加快照接口**
+- [x] **步骤 1：为现有全量绘制函数增加快照接口**
 
 保留原有调用参数顺序，在 `draw_dashboard` 末尾增加 `previous=None`，在 `draw_clock` 末尾增加 `previous=None, needs_config=False`。两者都返回带有 `mode` 键的显示态字典。若 `previous` 为空或页面模式不同，调用现有全量绘制路径并返回快照；相同模式则逐字段比较快照并只绘制变化区域。
 
@@ -231,7 +231,7 @@ class PartialRefreshTests(unittest.TestCase):
 
 接口契约：`draw_dashboard(canvas, time_text, weekday_short, date_text, lunar_text, metrics, wifi_ok, previous=None)` 接收上一帧字典并返回当前字典；`draw_clock(canvas, time_text, date_text, weekday_full, lunar_text, wifi_ok, time_synced, previous=None, needs_config=False)` 也返回当前字典。两个字典都包含 `mode`，值分别为 `dashboard` 和 `clock`，并只保存屏幕实际显示的值。
 
-- [ ] **步骤 2：实现各字段的局部绘制 helper**
+- [x] **步骤 2：实现各字段的局部绘制 helper**
 
 保留 `canvas.fill(BG)` 只用于首次整屏绘制和两个模式之间的转换。增加局部 helper：
 
@@ -259,7 +259,7 @@ def _metric_card_state(canvas, y, name, value_text, percent, color):
 
 从 `pico.font_cn` 导入 `CHINESE_HEIGHT` 供文字行清理使用。将 `_metric_card` 中的格式化部分移至 `_metric_card_state(canvas, y, name, value_text, percent, color)`，全量和局部绘制共同调用后者。`_clear_text_row` 后再画日期、农历、星期、NTP 状态或 ETH 收发文字，避免新文字比旧文字短时留下残像。指标卡坐标固定为 CPU `y=61`、GPU `y=83`、RAM `y=105`；收发文字行固定为 `y=130` 和 `y=145`。时钟秒变化时只更新 `clock_text` 时间区域；日期、星期、农历、头部、配置提示和状态行分别更新自己的 14 像素文字行。
 
-- [ ] **步骤 3：运行显示测试确认通过**
+- [x] **步骤 3：运行显示测试确认通过**
 
 运行：`./.venv/Scripts/python.exe -m unittest tests.test_display -v`
 
