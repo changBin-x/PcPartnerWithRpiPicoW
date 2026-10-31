@@ -265,7 +265,7 @@ def _metric_card_state(canvas, y, name, value_text, percent, color):
 
 预期：全部通过；既有排版、边界、字体和格式化断言保持通过，新断言确认稳定帧零写入、局部字段更新和跨模式整屏重绘。
 
-- [ ] **步骤 4：提交显示渲染层**
+- [x] **步骤 4：提交显示渲染层**
 
 ```powershell
 git add pico/display.py tests/test_display.py
@@ -276,7 +276,7 @@ git commit -m "fix: add partial Pico display rendering"
 
 **文件：** 修改 `pico/app.py`。
 
-- [ ] **步骤 1：让应用循环持有并传递渲染状态**
+- [x] **步骤 1：让应用循环持有并传递渲染状态**
 
 在 `run()` 初始化 `render_state = None`。在 `draw_due` 分支中将上一帧状态传给页面绘制函数，并保存返回值：
 
@@ -308,13 +308,13 @@ else:
 
 删除 `draw_clock` 后额外绘制 `WIFI CONFIG` 的 `screen.text` 调用；配置提示由时钟快照和局部行绘制统一管理。保留 `draw_due` 的 1 秒周期、收到新指标包时立即更新，以及 `DashboardState` 的 3 秒离线逻辑。
 
-- [ ] **步骤 2：验证页面切换和本地离线时钟**
+- [x] **步骤 2：验证页面切换和本地离线时钟**
 
 运行：`./.venv/Scripts/python.exe -m unittest tests.test_display tests.test_app_state -v`
 
 预期：全部通过；在仪表盘与时钟之间转换时上一个 `mode` 不匹配，绘制函数执行完整重绘；时钟日期和同步状态仍正常显示。
 
-- [ ] **步骤 3：运行完整本机检查**
+- [x] **步骤 3：运行完整本机检查**
 
 运行：
 

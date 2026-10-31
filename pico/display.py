@@ -3,10 +3,10 @@
 import math
 
 try:
-    from .font_cn import ASCII_WIDTH, CHINESE_HEIGHT, CHINESE_WIDTH
+    from .font_cn import ASCII_WIDTH, CHINESE_HEIGHT, CHINESE_WIDTH, LINE_BASELINE
     from .st7735 import rgb565
 except ImportError:
-    from font_cn import ASCII_WIDTH, CHINESE_HEIGHT, CHINESE_WIDTH
+    from font_cn import ASCII_WIDTH, CHINESE_HEIGHT, CHINESE_WIDTH, LINE_BASELINE
     from st7735 import rgb565
 
 

@@ -106,6 +106,7 @@ def run():
     last_mode = None
     last_metrics_ms = None
     last_date = None
+    render_state = None
 
     try:
         while True:
@@ -137,7 +138,7 @@ def run():
             if draw_due:
                 lunar_text = lunar.display_text
                 if mode == "dashboard":
-                    display.draw_dashboard(
+                    render_state = display.draw_dashboard(
                         screen,
                         clock["time_text"],
                         clock["weekday_short"],
@@ -145,9 +146,10 @@ def run():
                         lunar_text,
                         state.metrics or {},
                         wifi_connected,
+                        previous=render_state,
                     )
                 else:
-                    display.draw_clock(
+                    render_state = display.draw_clock(
                         screen,
                         clock["time_text"],
                         clock["full_date"],
@@ -155,9 +157,9 @@ def run():
                         lunar_text,
                         wifi_connected,
                         synchronizer.synced,
+                        previous=render_state,
+                        needs_config=wifi.needs_config,
                     )
-                    if wifi.needs_config:
-                        screen.text(31, 23, "WIFI CONFIG", display.AMBER, background=display.BG)
                 last_draw_ms = now_ms
                 last_mode = mode
 
