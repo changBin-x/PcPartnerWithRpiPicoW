@@ -326,7 +326,7 @@ git diff --check -- pico/app.py pico/display.py tests/test_display.py
 
 预期：单元测试全部通过、编译命令退出码为 0、目标代码文件的 `git diff --check` 无输出。只暂存 `pico/app.py`、`pico/display.py`、`tests/test_display.py`，不暂存 `pico/wifi_secrets.example.py`。
 
-- [ ] **步骤 4：提交应用接线与测试结果**
+- [x] **步骤 4：提交应用接线与测试结果**
 
 ```powershell
 git add pico/app.py
@@ -337,7 +337,7 @@ git commit -m "fix: avoid full-screen refresh on Pico updates"
 
 **文件：** 无额外代码文件；将已测试程序合并到 `main` 并部署至 COM4。
 
-- [ ] **步骤 1：将已验证提交快进合并到 main**
+- [x] **步骤 1：将已验证提交快进合并到 main**
 
 在主工作区运行：
 
@@ -348,7 +348,7 @@ git status --short
 
 预期：`main` 快进到已验证实现；保留根工作区现有 `tools/start_metrics.ps1` 修改，并保留 worktree 中未提交的 Wi‑Fi 模板改动，不清理用户正在使用的 worktree。
 
-- [ ] **步骤 2：确认依赖路径并部署 Pico**
+- [x] **步骤 2：确认依赖路径并部署 Pico**
 
 从 `D:\Projects\pc_partner` 运行：
 
