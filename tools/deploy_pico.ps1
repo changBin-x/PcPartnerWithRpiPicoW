@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Port = "COM4"
 )
@@ -9,19 +9,26 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $picoRoot = Join-Path $projectRoot "pico"
 $secretsPath = Join-Path $picoRoot "wifi_secrets.py"
+$weatherSecretsPath = Join-Path $picoRoot "weather_secrets.py"
 
 if (-not (Test-Path -LiteralPath $secretsPath -PathType Leaf)) {
-    Write-Error @"
-缺少本地 Wi-Fi 配置文件：pico/wifi_secrets.py
-请复制 pico/wifi_secrets.example.py 为 pico/wifi_secrets.py，填写 SSID 和密码后重新运行。
-该配置文件已加入 .gitignore；请勿提交或粘贴密码。
-"@
+    Write-Error ("缺少本地 Wi-Fi 配置文件：pico/wifi_secrets.py`n" +
+        "请复制 pico/wifi_secrets.example.py 为 pico/wifi_secrets.py，填写 SSID 和密码后重新运行。`n" +
+        "该配置文件已加入 .gitignore；请勿提交或粘贴密码。")
+    exit 2
+}
+
+if (-not (Test-Path -LiteralPath $weatherSecretsPath -PathType Leaf)) {
+    Write-Error ("缺少本地天气配置文件：pico/weather_secrets.py`n" +
+        "请复制 pico/weather_secrets.example.py 为 pico/weather_secrets.py，填写高德 Web 服务 Key 后重新运行。`n" +
+        "该配置文件已加入 .gitignore；部署脚本不会显示其内容。")
     exit 2
 }
 
 $packageFiles = @(
     "__init__.py",
     "app.py",
+    "amap_root_ca.pem",
     "display.py",
     "font_cn.py",
     "hko_root_ca.pem",
@@ -31,7 +38,9 @@ $packageFiles = @(
     "time_sync.py",
     "udp_receiver.py",
     "wifi.py",
-    "wifi_secrets.py"
+    "wifi_secrets.py",
+    "weather.py",
+    "weather_secrets.py"
 )
 
 $localFiles = @($packageFiles | ForEach-Object { Join-Path $picoRoot $_ })

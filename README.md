@@ -32,14 +32,22 @@ powershell -ExecutionPolicy Bypass -File tools/start_metrics.ps1
 
 ## Pico Wi‑Fi 配置与部署
 
-先在本地复制模板并填写路由器 Wi‑Fi 信息：
+先在本地复制模板并填写路由器 Wi‑Fi 和高德天气配置：
 
 ```powershell
 Copy-Item pico/wifi_secrets.example.py pico/wifi_secrets.py
+Copy-Item pico/weather_secrets.example.py pico/weather_secrets.py
 notepad pico/wifi_secrets.py
+notepad pico/weather_secrets.py
 ```
 
-`pico/wifi_secrets.py` 已加入 `.gitignore`。请勿提交该文件，也不要把密码发到聊天或日志中。部署脚本只检查文件是否存在，不显示其内容。
+在高德开放平台创建 **Web 服务** Key，并为应用启用 IP 定位和天气查询。把 Key 填入 `pico/weather_secrets.py` 的 `AMAP_WEB_KEY`。`CITY_OVERRIDE_ADCODE` 可留空以按公网 IPv4 自动定位，也可填写六位高德 adcode 固定城市。公网 IP 定位可能落到运营商出口城市；高德 IP 定位仅支持中国大陆 IPv4。需要固定展示城市时使用覆盖值。
+
+两个 `*_secrets.py` 文件均已加入 `.gitignore`，请勿提交，也不要把密码或 Key 发到聊天、日志或截图中。天气 Key 会随固件写入 Pico 闪存，拿到设备的人可以提取；建议为设备单独创建 Key 并在高德控制台设置调用配额。部署脚本只检查配置文件是否存在，不读取或显示其内容。
+
+天气请求在 Wi‑Fi 连接且 NTP 校时成功后由后台线程发起，TLS 会校验证书链和主机名，不会在绘屏主循环中同步访问网络。成功后每 30 分钟刷新；失败按 1、5、15、30 分钟退避重试，Wi‑Fi 重连时立即重试。温度固定显示摄氏度。最近一次成功天气只缓存在 RAM；断网或接口失败时保留并标为旧数据，断电重启后重新获取。仪表盘用天气行替换农历行，离线时钟仍显示天气和完整农历。
+
+接口说明：[高德 IP 定位](https://lbs.amap.com/api/webservice/guide/api/ipconfig)、[高德天气查询](https://lbs.amap.com/api/webservice/guide/api/weatherinfo)。2026-11-01 已在开发机当前 Wi‑Fi 上由 Pico 实测完成 IP 定位和天气查询；这只证明当前网络可达，展会或其他路由仍需现场确认。
 
 确保 COM4 没有被 Thonny 等串口程序占用，然后运行：
 
@@ -47,11 +55,11 @@ notepad pico/wifi_secrets.py
 powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1
 ```
 
-脚本先检查本地文件、COM4 和 MicroPython 运行环境，再把应用模块放入设备 `/pico/`，将启动入口复制为设备根目录 `/main.py`，最后重启 Pico。它不会删除设备上的其他文件。
+脚本先检查本地文件、COM4 和 MicroPython 运行环境，再把应用、天气 TLS 根证书和本地配置放入设备 `/pico/`，将启动入口复制为设备根目录 `/main.py`，最后重启 Pico。它不会删除设备上的其他文件。
 
 部署后检查：
 
-1. Pico 上电后自动运行 `/main.py`，连接本地 Wi‑Fi；屏幕显示当前时间、日期、星期和中文干支农历。
+1. Pico 上电后自动运行 `/main.py`，连接本地 Wi‑Fi 并完成 NTP 校时；天气行显示城市、现象和摄氏温度，时钟页还显示日期、星期和中文干支农历。
 2. 在电脑启动 `tools/start_metrics.ps1`，屏幕切换到 CPU/GPU/RAM 和 ETH Rx/Tx 仪表盘。
 3. 停止电脑端程序，约 3 秒后屏幕切回时钟；重新启动程序后回到仪表盘。
 4. 断开 Pico 电源再接回，不打开 Thonny，确认程序自动启动。
@@ -62,7 +70,7 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1
 
 MicroPython 启动后按 `ntp.aliyun.com`、`ntp1.aliyun.com`、`ntp2.aliyun.com` 顺序尝试校时，并按 UTC+8 显示。农历优先使用随固件安装的香港天文台（HKO）1901–2100 年本地逐日表；表内日期无需访问在线 API。表外日期才可能使用 HKO 公历/农历 API 补充。
 
-**在线 API 尚未通过 Pico 实际 Wi‑Fi 路由验收。** 当前 HKO 服务证书链观察到的中间 CA（Hongkong Post e‑Cert SSL CA 3‑17）被香港邮政标记为已撤销；MicroPython 1.29.0 可校验证书链和主机名，但没有 CRL/OCSP 撤销检查接口。程序不跳过 TLS 证书校验；API 失败时保留有效本地农历表结果。Windows 代理请求成功不能代表 Pico 直连或现场路由可达。
+**HKO 表外农历 API 尚未通过 Pico 实际 Wi‑Fi 路由验收。** 当前 HKO 服务证书链观察到的中间 CA（Hongkong Post e‑Cert SSL CA 3‑17）被香港邮政标记为已撤销；MicroPython 1.29.0 可校验证书链和主机名，但没有 CRL/OCSP 撤销检查接口。程序不跳过 TLS 证书校验；API 失败时保留有效本地农历表结果。Windows 代理请求成功不能代表 Pico 直连或现场路由可达。
 
 ## 本机开发检查
 

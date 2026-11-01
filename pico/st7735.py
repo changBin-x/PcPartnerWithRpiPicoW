@@ -10,6 +10,8 @@ try:
         CLOCK_DIGIT_WIDTH,
         CLOCK_FONT,
         FONT_CN,
+        WEATHER_DIGIT_FONT,
+        WEATHER_DIGIT_WIDTH,
     )
 except ImportError:
     from font_cn import (
@@ -21,6 +23,8 @@ except ImportError:
         CLOCK_DIGIT_WIDTH,
         CLOCK_FONT,
         FONT_CN,
+        WEATHER_DIGIT_FONT,
+        WEATHER_DIGIT_WIDTH,
     )
 
 
@@ -106,6 +110,23 @@ def clock_colon_coverage(width=8, height=26):
 
 
 CLOCK_COLON_GLYPH = pack_coverage(clock_colon_coverage())
+
+CHINESE_PLACEHOLDER_GLYPH = (
+    b"\x00\x00\x00\x00\x00\x00\x00"
+    b"\x0f\xff\xff\xff\xff\xff\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\x00\x00\x00\x00\x00\xf0"
+    b"\x0f\xff\xff\xff\xff\xff\xf0"
+    b"\x00\x00\x00\x00\x00\x00\x00"
+)
 
 def _color_bytes(color):
     return (color >> 8) & 0xFF, color & 0xFF
@@ -281,7 +302,7 @@ class ST7735:
     def _draw_chinese(self, x, y, character, color, background):
         glyph = FONT_CN.get(character)
         if glyph is None:
-            raise ValueError("缺少中文字形: %s" % character)
+            glyph = CHINESE_PLACEHOLDER_GLYPH
         self._draw_coverage(x, y, CHINESE_WIDTH, CHINESE_HEIGHT, glyph, color, background)
         return CHINESE_WIDTH
 
@@ -299,7 +320,7 @@ class ST7735:
                 width = CHINESE_WIDTH
                 glyph = FONT_CN.get(character)
                 if glyph is None:
-                    raise ValueError("缺少中文字形: %s" % character)
+                    glyph = CHINESE_PLACEHOLDER_GLYPH
             if x + line_width + width > self.width:
                 break
             entries.append((line_width, width, glyph))
@@ -307,6 +328,28 @@ class ST7735:
         self._draw_glyph_entries(
             x, y, line_width, CHINESE_HEIGHT, entries, color, background
         )
+
+    def weather_temperature(self, x, y, value, color, background=0x0000):
+        """Draw a medium-bold temperature number followed by its Celsius unit."""
+        entries = []
+        line_width = 0
+        for character in value:
+            if character in WEATHER_DIGIT_FONT:
+                width = WEATHER_DIGIT_WIDTH
+                glyph = WEATHER_DIGIT_FONT[character]
+            elif ord(character) >= 128:
+                width = CHINESE_WIDTH
+                glyph = FONT_CN.get(character, CHINESE_PLACEHOLDER_GLYPH)
+            else:
+                raise ValueError("温度字形仅支持数字、负号和摄氏度")
+            if x + line_width + width > self.width:
+                break
+            entries.append((line_width, width, glyph))
+            line_width += width
+        self._draw_glyph_entries(
+            x, y, line_width, CHINESE_HEIGHT, entries, color, background
+        )
+        return line_width
 
     def clock_text(self, x, y, value, color, background=0x0000):
         """Draw a large numeric clock with two smooth, symmetric colon dots."""

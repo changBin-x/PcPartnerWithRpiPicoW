@@ -5,6 +5,7 @@
 __pycache__/
 *.py[cod]
 pico/wifi_secrets.py
+pico/weather_secrets.py
 logs/
 !docs/superpowers/
 !docs/superpowers/**

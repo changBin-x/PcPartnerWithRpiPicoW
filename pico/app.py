@@ -89,12 +89,14 @@ def run():
         from .wifi import WifiManager
         from .time_sync import TimeSynchronizer
         from .lunar import HkoLunarService
+        from .weather import AmapWeatherService
     except ImportError:
         from st7735 import ST7735
         from udp_receiver import UdpReceiver
         from wifi import WifiManager
         from time_sync import TimeSynchronizer
         from lunar import HkoLunarService
+        from weather import AmapWeatherService
 
     screen = ST7735()
     receiver = UdpReceiver()
@@ -102,6 +104,7 @@ def run():
     synchronizer = TimeSynchronizer()
     state = DashboardState(ticks_diff=time.ticks_diff)
     lunar = HkoLunarService()
+    weather = AmapWeatherService()
     last_draw_ms = None
     last_mode = None
     last_metrics_ms = None
@@ -116,6 +119,12 @@ def run():
                 now_ms,
                 wifi_connected,
                 force=wifi_changed and wifi_connected,
+            )
+            weather_snapshot = weather.poll(
+                now_ms,
+                wifi_connected,
+                wifi_changed=wifi_changed,
+                time_synced=synchronizer.synced,
             )
 
             payload = receiver.poll()
@@ -143,7 +152,7 @@ def run():
                         clock["time_text"],
                         clock["weekday_short"],
                         clock["short_date"],
-                        lunar_text,
+                        weather_snapshot,
                         state.metrics or {},
                         wifi_connected,
                         previous=render_state,
@@ -159,6 +168,7 @@ def run():
                         synchronizer.synced,
                         previous=render_state,
                         needs_config=wifi.needs_config,
+                        weather=weather_snapshot,
                     )
                 last_draw_ms = now_ms
                 last_mode = mode

@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 
-CHINESE_CHARACTERS = "".join(
+BASE_CHINESE_CHARACTERS = "".join(
     sorted(
         set(
             "星期周年月日"
@@ -15,6 +15,24 @@ CHINESE_CHARACTERS = "".join(
             "正二三四五六七八九冬腊月闰"
             "甲乙丙丁戊己庚辛壬癸"
             "子丑寅卯辰巳午未申酉戌亥"
+        )
+    )
+)
+
+WEATHER_CHINESE_CHARACTERS = (
+    # 高德天气现象词表
+    "晴少间云多阴有风平静微和清强劲疾大烈暴狂爆飓风热带风暴霾中重严"
+    "阵雨雷并伴冰雹小中大特极端降雨毛毛细雨夹雪冻雪阵暴浮尘扬沙尘龙卷雾浓强轻热冷未知"
+    # 高德城市、天气状态和行政区名称
+    "北京上海天津重庆广州深圳成都杭州武汉南京西安郑州沈阳青岛大连宁波厦门长沙苏州合肥福州昆明济南哈尔滨长春石家庄南昌贵阳南宁海口兰州银川西宁乌鲁木齐呼和浩特拉萨香港澳门台北高雄"
+    "无锡常州徐州扬州镇江泰州盐城淮安连云港宿迁温州绍兴嘉兴金华台丽衢舟芜湖蚌埠淮南马鞍山安庆黄滁阜宿六亳池铜宣莆三明泉漳南平龙岩宁德抚宜春上饶赣吉萍景德九新鹰株湘衡邵岳常益郴永怀娄张家界恩施襄荆宜昌十堰黄咸孝门鄂随仙潜神农大庆齐齐佳牡伊黑绥鸡鹤双七兴安延边吉林四通白松盘锦鞍抚本丹营阜辽铁朝葫承张秦唐保廊沧邢邯太原阳长晋朔忻吕临运乌海包赤通鄂尔多斯巴彦淖乌兰察布锡林郭勒阿拉善宝咸铜渭延榆汉康商天武张酒嘉金平庆定陇临甘果玉海东北阿克苏喀什和田伊犁塔城阿勒泰克吐鲁番哈密库尔勒石河图木双河可达拉铁门关昆玉"
+    "省市区县自治州盟地区旧获取中暂不可用未配置天气温度℃度□"
+)
+
+CHINESE_CHARACTERS = "".join(
+    sorted(
+        set(
+            BASE_CHINESE_CHARACTERS + WEATHER_CHINESE_CHARACTERS
         )
     )
 )
@@ -30,6 +48,10 @@ LINE_BASELINE = 11
 CLOCK_DIGIT_WIDTH = 14
 CLOCK_DIGIT_HEIGHT = 26
 CLOCK_BASELINE = 21
+WEATHER_DIGIT_CHARACTERS = "0123456789-"
+WEATHER_DIGIT_WIDTH = 11
+WEATHER_DIGIT_HEIGHT = 14
+WEATHER_DIGIT_BASELINE = 11
 
 
 def pack_coverage(values):
@@ -107,13 +129,28 @@ def _verify_glyphs(glyphs, required, width, height, label):
             raise ValueError("%s字形为空: %s" % (label, character))
 
 
-def verify_font_set(chinese_glyphs, ascii_glyphs, clock_glyphs):
+def verify_font_set(
+    chinese_glyphs,
+    ascii_glyphs,
+    clock_glyphs,
+    required_chinese=None,
+    weather_digit_glyphs=None,
+):
     """Check required character coverage and packed glyph dimensions."""
+    required = required_chinese if required_chinese is not None else BASE_CHINESE_CHARACTERS
     _verify_glyphs(
-        chinese_glyphs, CHINESE_CHARACTERS, CHINESE_WIDTH, CHINESE_HEIGHT, "中文"
+        chinese_glyphs, required, CHINESE_WIDTH, CHINESE_HEIGHT, "中文"
     )
     _verify_glyphs(ascii_glyphs, ASCII_CHARACTERS, ASCII_WIDTH, ASCII_HEIGHT, "ASCII")
     _verify_glyphs(clock_glyphs, CLOCK_CHARACTERS, CLOCK_DIGIT_WIDTH, CLOCK_DIGIT_HEIGHT, "时钟数字")
+    if weather_digit_glyphs is not None:
+        _verify_glyphs(
+            weather_digit_glyphs,
+            WEATHER_DIGIT_CHARACTERS,
+            WEATHER_DIGIT_WIDTH,
+            WEATHER_DIGIT_HEIGHT,
+            "天气温度数字",
+        )
 
 
 def _build_group(font, characters, width, height, baseline, label):
@@ -155,7 +192,22 @@ def build_font(chinese_font_path, ascii_font_path, size, output_path):
         clock_font, CLOCK_CHARACTERS, CLOCK_DIGIT_WIDTH, CLOCK_DIGIT_HEIGHT,
         CLOCK_BASELINE, "时钟数字"
     )
-    verify_font_set(chinese_glyphs, ascii_glyphs, clock_glyphs)
+    weather_digit_font = _font(ascii_font_path, 60)
+    weather_digit_glyphs = _build_group(
+        weather_digit_font,
+        WEATHER_DIGIT_CHARACTERS,
+        WEATHER_DIGIT_WIDTH,
+        WEATHER_DIGIT_HEIGHT,
+        WEATHER_DIGIT_BASELINE,
+        "天气温度数字",
+    )
+    verify_font_set(
+        chinese_glyphs,
+        ascii_glyphs,
+        clock_glyphs,
+        required_chinese=CHINESE_CHARACTERS,
+        weather_digit_glyphs=weather_digit_glyphs,
+    )
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,9 +222,11 @@ def build_font(chinese_font_path, ascii_font_path, size, output_path):
         output.write("LINE_BASELINE = 11\n")
         output.write("CLOCK_DIGIT_WIDTH = 14\nCLOCK_DIGIT_HEIGHT = 26\n")
         output.write("CLOCK_BASELINE = 21\n")
+        output.write("WEATHER_DIGIT_WIDTH = 11\nWEATHER_DIGIT_HEIGHT = 14\n")
         _write_mapping(output, "FONT_CN", chinese_glyphs)
         _write_mapping(output, "ASCII_FONT", ascii_glyphs)
         _write_mapping(output, "CLOCK_FONT", clock_glyphs)
+        _write_mapping(output, "WEATHER_DIGIT_FONT", weather_digit_glyphs)
     return len(chinese_glyphs), len(ascii_glyphs), len(clock_glyphs)
 
 

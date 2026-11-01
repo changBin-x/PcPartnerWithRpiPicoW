@@ -3,10 +3,22 @@
 import math
 
 try:
-    from .font_cn import ASCII_WIDTH, CHINESE_HEIGHT, CHINESE_WIDTH, LINE_BASELINE
+    from .font_cn import (
+        ASCII_WIDTH,
+        CHINESE_HEIGHT,
+        CHINESE_WIDTH,
+        LINE_BASELINE,
+        WEATHER_DIGIT_WIDTH,
+    )
     from .st7735 import rgb565
 except ImportError:
-    from font_cn import ASCII_WIDTH, CHINESE_HEIGHT, CHINESE_WIDTH, LINE_BASELINE
+    from font_cn import (
+        ASCII_WIDTH,
+        CHINESE_HEIGHT,
+        CHINESE_WIDTH,
+        LINE_BASELINE,
+        WEATHER_DIGIT_WIDTH,
+    )
     from st7735 import rgb565
 
 
@@ -67,6 +79,111 @@ def _text_width(value):
     return width
 
 
+def _clean_weather_text(value):
+    if not isinstance(value, str):
+        return ""
+    return "".join(
+        character
+        for character in value.strip()
+        if ord(character) >= 32 and ord(character) != 127
+    )
+
+
+def _clip_text(value, max_width):
+    result = ""
+    for character in value:
+        if _text_width(result + character) > max_width:
+            break
+        result += character
+    if result != value and max_width >= 16:
+        while result and _text_width(result + "..") > max_width:
+            result = result[:-1]
+        result += ".."
+    return result
+
+
+def _weather_state(weather):
+    if not isinstance(weather, dict):
+        weather = {}
+    has_data = bool(weather.get("has_data"))
+    if has_data:
+        city = _clean_weather_text(weather.get("city", ""))
+        condition = _clean_weather_text(weather.get("weather", ""))
+        temperature = weather.get("temperature")
+        if (
+            not isinstance(temperature, (int, float))
+            or isinstance(temperature, bool)
+            or (isinstance(temperature, float) and not math.isfinite(temperature))
+            or temperature < -80
+            or temperature > 70
+        ):
+            has_data = False
+        elif not condition:
+            has_data = False
+        else:
+            return {
+                "has_data": True,
+                "city": city,
+                "condition": condition,
+                "temperature": int(temperature + 0.5) if temperature >= 0 else int(temperature - 0.5),
+                "is_stale": bool(weather.get("is_stale")),
+                "status": "",
+            }
+    status = weather.get("status", "天气暂不可用")
+    if status not in ("天气获取中", "天气暂不可用", "天气未配置"):
+        status = "天气暂不可用"
+    return {
+        "has_data": False,
+        "city": "",
+        "condition": "",
+        "temperature": None,
+        "is_stale": False,
+        "status": status,
+    }
+
+
+def _draw_weather_row(canvas, y, state, panel=False):
+    if panel:
+        canvas.fill_rect(4, y - 1, 120, 15, CARD)
+        background = CARD
+    else:
+        canvas.fill_rect(0, y, canvas.width, CHINESE_HEIGHT, BG)
+        background = BG
+
+    if not state["has_data"]:
+        text = _clip_text(state["status"], canvas.width - 8)
+        canvas.text(4, y, text, MUTED, background)
+        return
+
+    city_x = 4
+    if state["is_stale"]:
+        canvas.text(4, y, "旧", AMBER, background)
+        city_x = 18
+
+    city = state["city"]
+    for suffix in ("市", "地区", "自治州", "盟"):
+        if city.endswith(suffix) and len(city) > len(suffix):
+            city = city[:-len(suffix)]
+            break
+    temperature_text = "%d℃" % state["temperature"]
+    temperature_width = (
+        len(str(state["temperature"])) * WEATHER_DIGIT_WIDTH + CHINESE_WIDTH
+    )
+    temperature_x = canvas.width - 4 - temperature_width
+    left_end = temperature_x - 8
+    city_width = min(42, left_end - city_x)
+    city_text = _clip_text(city, city_width)
+    condition_x = city_x + _text_width(city_text)
+    condition_width = max(0, left_end - condition_x)
+    condition_text = _clip_text(state["condition"], condition_width)
+    if city_text:
+        canvas.text(city_x, y, city_text, MUTED, background)
+    if condition_text:
+        canvas.text(condition_x, y, condition_text, CYAN_LIGHT, background)
+
+    canvas.weather_temperature(temperature_x, y, temperature_text, CYAN, background)
+
+
 def _centered_text(canvas, y, value, color, background=BG):
     width = _text_width(value)
     if width > canvas.width:
@@ -95,7 +212,7 @@ def _clear_text_row(canvas, y):
     canvas.fill_rect(0, y, canvas.width, CHINESE_HEIGHT, BG)
 
 
-def _dashboard_state(time_text, weekday_short, date_text, lunar_text, metrics, wifi_ok):
+def _dashboard_state(time_text, weekday_short, date_text, weather, metrics, wifi_ok):
     has_time = bool(time_text)
     date_line = "%s %s" % (weekday_short or "", date_text or "")
     return {
@@ -104,7 +221,7 @@ def _dashboard_state(time_text, weekday_short, date_text, lunar_text, metrics, w
         "time_ok": has_time,
         "time_text": str(time_text) if has_time else "TIME SYNC",
         "date_line": date_line.strip(),
-        "lunar_text": lunar_text or "",
+        "weather": _weather_state(weather),
         "cpu": _percent_text(metrics.get("cpu")),
         "gpu": _percent_text(metrics.get("gpu")),
         "ram": _percent_text(metrics.get("ram")),
@@ -131,17 +248,12 @@ def _draw_dashboard_date(canvas, state):
         canvas.text(4, 30, state["date_line"], MUTED, BG)
 
 
-def _draw_dashboard_lunar(canvas, state):
-    if state["lunar_text"]:
-        _centered_text(canvas, 45, state["lunar_text"], AMBER, BG)
-
-
 def _draw_dashboard_full(canvas, state):
     canvas.fill(BG)
     _draw_dashboard_header(canvas, state["wifi_ok"])
     _draw_dashboard_time(canvas, state)
     _draw_dashboard_date(canvas, state)
-    _draw_dashboard_lunar(canvas, state)
+    _draw_weather_row(canvas, 45, state["weather"], panel=True)
     canvas.hline(4, 59, 120, CARD)
     cpu_text, cpu_percent = state["cpu"]
     gpu_text, gpu_percent = state["gpu"]
@@ -164,9 +276,8 @@ def _draw_dashboard_changes(canvas, previous, current):
     if previous["date_line"] != current["date_line"]:
         _clear_text_row(canvas, 30)
         _draw_dashboard_date(canvas, current)
-    if previous["lunar_text"] != current["lunar_text"]:
-        _clear_text_row(canvas, 45)
-        _draw_dashboard_lunar(canvas, current)
+    if previous["weather"] != current["weather"]:
+        _draw_weather_row(canvas, 45, current["weather"], panel=True)
     for key, y, name, color in (
         ("cpu", 61, "CPU", CYAN),
         ("gpu", 83, "GPU", CYAN),
@@ -188,14 +299,14 @@ def draw_dashboard(
     time_text,
     weekday_short,
     date_text,
-    lunar_text,
+    weather,
     metrics,
     wifi_ok,
     previous=None,
 ):
     """Draw the metrics layout, updating only fields changed from previous."""
     current = _dashboard_state(
-        time_text, weekday_short, date_text, lunar_text, metrics, wifi_ok
+        time_text, weekday_short, date_text, weather, metrics, wifi_ok
     )
     if not isinstance(previous, dict) or previous.get("mode") != "dashboard":
         _draw_dashboard_full(canvas, current)
@@ -224,8 +335,19 @@ def _clock_state(
     wifi_ok,
     time_synced,
     needs_config,
+    weather,
 ):
     time_valid = _valid_time_text(time_text)
+    weather_state = _weather_state(weather)
+    if needs_config:
+        weather_state = {
+            "has_data": False,
+            "city": "",
+            "condition": "",
+            "temperature": None,
+            "is_stale": False,
+            "status": "WIFI CONFIG",
+        }
     return {
         "mode": "clock",
         "wifi_ok": bool(wifi_ok),
@@ -235,6 +357,7 @@ def _clock_state(
         "date_text": (date_text or "") if time_valid else "",
         "weekday_full": (weekday_full or "") if time_valid else "",
         "lunar_text": (lunar_text or "") if time_valid else "",
+        "weather": weather_state,
         "footer": (
             ("NTP SYNC UTC+8" if time_synced else "NTP NOT SYNCED")
             if time_valid
@@ -249,11 +372,6 @@ def _draw_clock_header(canvas, wifi_ok):
     wifi_text = "WIFI" if wifi_ok else "NO WIFI"
     wifi_color = GREEN if wifi_ok else AMBER
     canvas.text(92 if wifi_ok else 68, 1, wifi_text, wifi_color, BG)
-
-
-def _draw_clock_config(canvas, needs_config):
-    if needs_config:
-        canvas.text(31, 23, "WIFI CONFIG", AMBER, BG)
 
 
 def _draw_clock_body(canvas, state):
@@ -279,8 +397,8 @@ def _clear_clock_body(canvas):
 def _draw_clock_full(canvas, state):
     canvas.fill(BG)
     _draw_clock_header(canvas, state["wifi_ok"])
+    _draw_weather_row(canvas, 15, state["weather"])
     _draw_clock_body(canvas, state)
-    _draw_clock_config(canvas, state["needs_config"])
 
 
 def _draw_clock_changes(canvas, previous, current):
@@ -288,18 +406,16 @@ def _draw_clock_changes(canvas, previous, current):
         _clear_text_row(canvas, 0)
         _draw_clock_header(canvas, current["wifi_ok"])
 
-    config_changed = previous["needs_config"] != current["needs_config"]
-    if config_changed:
-        _clear_text_row(canvas, 23)
+    if previous["weather"] != current["weather"]:
+        _draw_weather_row(canvas, 15, current["weather"])
 
     if previous["time_valid"] != current["time_valid"]:
         _clear_clock_body(canvas)
         _draw_clock_body(canvas, current)
-        _draw_clock_config(canvas, current["needs_config"])
         return
 
     if current["time_valid"]:
-        if previous["time_text"] != current["time_text"] or config_changed:
+        if previous["time_text"] != current["time_text"]:
             canvas.clock_text(12, 34, current["time_text"], TEXT, BG)
         if previous["date_text"] != current["date_text"]:
             _clear_text_row(canvas, 77)
@@ -318,12 +434,6 @@ def _draw_clock_changes(canvas, previous, current):
         _clear_text_row(canvas, 145)
         _centered_text(canvas, 145, current["footer"], MUTED, BG)
 
-    if config_changed:
-        _draw_clock_config(canvas, current["needs_config"])
-    elif current["needs_config"] and previous["time_text"] != current["time_text"]:
-        _draw_clock_config(canvas, True)
-
-
 def draw_clock(
     canvas,
     time_text,
@@ -334,6 +444,7 @@ def draw_clock(
     time_synced,
     previous=None,
     needs_config=False,
+    weather=None,
 ):
     """Draw the clock layout, updating only fields changed from previous."""
     current = _clock_state(
@@ -344,6 +455,7 @@ def draw_clock(
         wifi_ok,
         time_synced,
         needs_config,
+        weather,
     )
     if not isinstance(previous, dict) or previous.get("mode") != "clock":
         _draw_clock_full(canvas, current)
