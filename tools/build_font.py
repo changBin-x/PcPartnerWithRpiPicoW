@@ -116,7 +116,7 @@ def _pack_glyph(font, character, width, height, baseline):
 
 
 def _verify_glyphs(glyphs, required, width, height, label):
-    missing = sorted(set(required) - set(glyphs))
+    missing = sorted([character for character in set(required) if character not in glyphs])
     if missing:
         raise ValueError("%s缺少字符: %s" % (label, "、".join(missing)))
     expected_length = (width * height + 1) // 2
@@ -174,7 +174,68 @@ def _write_mapping(output, name, glyphs):
     output.write("}\n")
 
 
-def build_font(chinese_font_path, ascii_font_path, size, output_path):
+def _write_flash_glyphs(blob_path, glyphs):
+    """Write CJK bitmaps as fixed-width records ordered by character."""
+    blob_path = Path(blob_path)
+    blob_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_length = (CHINESE_WIDTH * CHINESE_HEIGHT + 1) // 2
+    with blob_path.open("wb") as blob:
+        for character, data in sorted(glyphs.items()):
+            if len(data) != expected_length:
+                raise ValueError("字形长度错误: %s" % character)
+            blob.write(data)
+    return len(glyphs) * expected_length
+
+
+def write_glyph_module(
+    output_path,
+    blob_path,
+    chinese_glyphs,
+    ascii_glyphs,
+    clock_glyphs,
+    weather_digit_glyphs,
+):
+    """Write the Pico glyph module plus its flash-backed CJK bitmap file."""
+    expected_length = (CHINESE_WIDTH * CHINESE_HEIGHT + 1) // 2
+    blob_size = _write_flash_glyphs(blob_path, chinese_glyphs)
+    order = "".join(character for character, _ in sorted(chinese_glyphs.items()))
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="\n") as output:
+        output.write(
+            '"""Generated 4-bit anti-aliased glyphs; '
+            "regenerate with tools/build_font.py.\n\n"
+            "CJK bitmaps live in font_cn.bin and are read on demand; the small\n"
+            'tables below stay in RAM because every frame uses them.\n"""\n'
+        )
+        output.write(
+            "try:\n"
+            "    from .glyph_font import FlashGlyphs, default_path as _default_glyph_path\n"
+            "except ImportError:\n"
+            "    from glyph_font import FlashGlyphs, default_path as _default_glyph_path\n\n"
+        )
+        output.write("COVERAGE_BITS = 4\n")
+        output.write("CHINESE_WIDTH = 14\nCHINESE_HEIGHT = 14\n")
+        output.write("ASCII_WIDTH = 8\nASCII_HEIGHT = 14\n")
+        output.write("LINE_BASELINE = 11\n")
+        output.write("CLOCK_DIGIT_WIDTH = 14\nCLOCK_DIGIT_HEIGHT = 26\n")
+        output.write("CLOCK_BASELINE = 21\n")
+        output.write("WEATHER_DIGIT_WIDTH = 11\nWEATHER_DIGIT_HEIGHT = 14\n")
+        _write_mapping(output, "ASCII_FONT", ascii_glyphs)
+        _write_mapping(output, "CLOCK_FONT", clock_glyphs)
+        _write_mapping(output, "WEATHER_DIGIT_FONT", weather_digit_glyphs)
+        output.write("FONT_CN_BYTES_PER_GLYPH = %d\n" % expected_length)
+        output.write("FONT_CN_BLOB_BYTES = %d\n" % blob_size)
+        output.write("FONT_CN_ORDER = %r\n" % order)
+        output.write(
+            "FONT_CN = FlashGlyphs(\n"
+            "    _default_glyph_path(), FONT_CN_ORDER, FONT_CN_BYTES_PER_GLYPH\n"
+            ")\n"
+        )
+    return blob_size
+
+
+def build_font(chinese_font_path, ascii_font_path, size, output_path, blob_path=None):
     if size != CHINESE_HEIGHT:
         raise ValueError("正文中文字框必须为 14 像素高")
     chinese_font = _font(chinese_font_path, 46)
@@ -209,24 +270,16 @@ def build_font(chinese_font_path, ascii_font_path, size, output_path):
         weather_digit_glyphs=weather_digit_glyphs,
     )
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", newline="\n") as output:
-        output.write(
-            '"""Generated 4-bit anti-aliased glyphs; '
-            'regenerate with tools/build_font.py."""\n'
-        )
-        output.write("COVERAGE_BITS = 4\n")
-        output.write("CHINESE_WIDTH = 14\nCHINESE_HEIGHT = 14\n")
-        output.write("ASCII_WIDTH = 8\nASCII_HEIGHT = 14\n")
-        output.write("LINE_BASELINE = 11\n")
-        output.write("CLOCK_DIGIT_WIDTH = 14\nCLOCK_DIGIT_HEIGHT = 26\n")
-        output.write("CLOCK_BASELINE = 21\n")
-        output.write("WEATHER_DIGIT_WIDTH = 11\nWEATHER_DIGIT_HEIGHT = 14\n")
-        _write_mapping(output, "FONT_CN", chinese_glyphs)
-        _write_mapping(output, "ASCII_FONT", ascii_glyphs)
-        _write_mapping(output, "CLOCK_FONT", clock_glyphs)
-        _write_mapping(output, "WEATHER_DIGIT_FONT", weather_digit_glyphs)
+    if blob_path is None:
+        blob_path = Path(output_path).with_name("font_cn.bin")
+    write_glyph_module(
+        output_path,
+        blob_path,
+        chinese_glyphs,
+        ascii_glyphs,
+        clock_glyphs,
+        weather_digit_glyphs,
+    )
     return len(chinese_glyphs), len(ascii_glyphs), len(clock_glyphs)
 
 
@@ -236,16 +289,22 @@ def main(argv=None):
     parser.add_argument("--ascii-font", required=True, help="Latin TrueType/OpenType font file")
     parser.add_argument("--size", type=int, default=14, help="CJK glyph cell height (must be 14)")
     parser.add_argument("--output", default="pico/font_cn.py", help="output MicroPython module")
+    parser.add_argument(
+        "--bin-output",
+        default=None,
+        help="flash-backed CJK bitmap file (default: font_cn.bin beside --output)",
+    )
     args = parser.parse_args(argv)
     try:
         chinese_count, ascii_count, clock_count = build_font(
-            args.font, args.ascii_font, args.size, args.output
+            args.font, args.ascii_font, args.size, args.output, args.bin_output
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+    blob_path = args.bin_output or str(Path(args.output).with_name("font_cn.bin"))
     print(
-        "Generated %d CJK, %d ASCII and %d clock glyphs (4-bit coverage): %s"
-        % (chinese_count, ascii_count, clock_count, args.output)
+        "Generated %d CJK, %d ASCII and %d clock glyphs (4-bit coverage): %s + %s"
+        % (chinese_count, ascii_count, clock_count, args.output, blob_path)
     )
 
 
