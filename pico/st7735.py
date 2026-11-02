@@ -252,6 +252,10 @@ class ST7735:
             x, y, width, height, ((0, width, packed),), color, background
         )
 
+    def bitmap(self, x, y, width, height, packed, color, background=0x0000):
+        """Blend a packed 4-bit coverage bitmap (high nibble first) onto background."""
+        self._draw_coverage(x, y, width, height, packed, color, background)
+
     def _draw_glyph_entries(self, x, y, total_width, height, entries, color, background):
         """Blend glyphs in vertical bands capped at 3 KB, with one SPI window each."""
         if total_width <= 0 or x < 0 or y < 0:

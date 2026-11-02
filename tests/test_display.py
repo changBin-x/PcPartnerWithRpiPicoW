@@ -1,7 +1,20 @@
 import math
 import unittest
+from pathlib import Path
 
-from pico.display import TRACK, LINE_BASELINE, _text_width, draw_clock, draw_dashboard
+from pico.display import (
+    ICON_ACTIVE,
+    ICON_HEIGHT,
+    ICON_INACTIVE,
+    ICON_PC,
+    ICON_WIFI,
+    ICON_WIDTH,
+    LINE_BASELINE,
+    TRACK,
+    _text_width,
+    draw_clock,
+    draw_dashboard,
+)
 from pico.font_cn import (
     ASCII_FONT,
     ASCII_HEIGHT,
@@ -12,6 +25,9 @@ from pico.font_cn import (
     CLOCK_DIGIT_WIDTH,
     CLOCK_FONT,
     FONT_CN,
+    FONT_CN_BLOB_BYTES,
+    FONT_CN_BYTES_PER_GLYPH,
+    FONT_CN_ORDER,
 )
 from tools.build_font import ASCII_CHARACTERS, CHINESE_CHARACTERS, verify_font_set
 from pico.st7735 import (
@@ -44,6 +60,9 @@ class RecordingCanvas:
 
     def clock_text(self, x, y, value, color, background=None):
         self.calls.append(("clock", x, y, value, color, background))
+
+    def bitmap(self, x, y, width, height, packed, color, background=None):
+        self.calls.append(("bitmap", x, y, width, height, packed, color, background))
 
 
 class RecordingPin:
@@ -93,7 +112,7 @@ class DisplayTests(unittest.TestCase):
                 else:
                     self.assertIn(character, ASCII_CHARACTERS)
                     self.assertIn(character, ASCII_FONT)
-        ascii_phrases = ("PC OFFLINE", "NO WIFI", "ETH RX 125.0MB/s", "NTP SYNC UTC+8")
+        ascii_phrases = ("ETH RX 125.0MB/s", "NTP SYNC UTC+8", "PC", "MEM")
         for text in ascii_phrases:
             for character in text:
                 self.assertIn(character, ASCII_CHARACTERS)
@@ -101,6 +120,20 @@ class DisplayTests(unittest.TestCase):
         verify_font_set(FONT_CN, ASCII_FONT, CLOCK_FONT)
         self.assertEqual(len(ASCII_FONT["1"]), 56)
         self.assertEqual(_text_width("星期一 10/31"), 90)
+
+    def test_chinese_glyphs_are_flash_backed_to_save_heap(self):
+        blob_path = Path(__file__).resolve().parent.parent / "pico" / "font_cn.bin"
+        self.assertEqual(FONT_CN_BYTES_PER_GLYPH, 98)
+        self.assertEqual(len(FONT_CN_ORDER), len(FONT_CN))
+        self.assertEqual(blob_path.stat().st_size, FONT_CN_BLOB_BYTES)
+        self.assertEqual(FONT_CN_BLOB_BYTES, len(FONT_CN_ORDER) * FONT_CN_BYTES_PER_GLYPH)
+        with blob_path.open("rb") as blob:
+            index = FONT_CN_ORDER.find("宁")
+            self.assertGreaterEqual(index, 0)
+            blob.seek(index * FONT_CN_BYTES_PER_GLYPH)
+            self.assertEqual(FONT_CN["宁"], blob.read(FONT_CN_BYTES_PER_GLYPH))
+        self.assertIsNone(FONT_CN.get("\U00020000"))
+        self.assertNotIn("\U00020000", FONT_CN)
 
     def test_large_clock_digits_have_separate_smooth_glyph_set(self):
         self.assertEqual((CLOCK_DIGIT_WIDTH, CLOCK_DIGIT_HEIGHT), (14, 26))
@@ -160,7 +193,7 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(len(screen.spi.writes), 2)
         self.assertLessEqual(max(len(write) for write in screen.spi.writes), 3072)
 
-    def test_wifi_status_never_overlaps_title_in_either_layout(self):
+    def test_status_icons_replace_header_text_in_both_layouts(self):
         for wifi_ok in (True, False):
             with self.subTest(layout="dashboard", wifi_ok=wifi_ok):
                 canvas = RecordingCanvas()
@@ -169,31 +202,42 @@ class DisplayTests(unittest.TestCase):
                     {"cpu": 20, "gpu": 30, "ram": 40, "rx": 1.0, "tx": 0.5},
                     wifi_ok,
                 )
-                self._assert_header_text_does_not_overlap(canvas)
+                self._assert_status_icons(canvas, pc_active=True, wifi_ok=wifi_ok)
             with self.subTest(layout="clock", wifi_ok=wifi_ok):
                 canvas = RecordingCanvas()
                 draw_clock(
                     canvas, "15:28:41", "2026年10月31日", "星期六",
                     "丙午年九月廿二", wifi_ok, True,
                 )
-                self._assert_header_text_does_not_overlap(canvas)
+                self._assert_status_icons(canvas, pc_active=False, wifi_ok=wifi_ok)
 
-    def _assert_header_text_does_not_overlap(self, canvas):
-        header = [call for call in canvas.calls if call[0] == "text" and call[2] == 1]
-        self.assertEqual(len(header), 2)
-        left, right = header
-        left_start = left[1]
-        left_end = left_start + _text_width(left[3])
-        right_start = right[1]
-        right_end = right_start + _text_width(right[3])
-        self.assertGreaterEqual(left_start, 0)
-        self.assertGreaterEqual(right_start, 0)
-        self.assertLessEqual(left_end, canvas.width)
-        self.assertLessEqual(right_end, canvas.width)
-        self.assertTrue(
-            left_end <= right_start or right_end <= left_start,
-            "%s 和 %s 的状态标题重叠" % (left[3], right[3]),
+    def _assert_status_icons(self, canvas, pc_active, wifi_ok):
+        header_text = [call for call in canvas.calls if call[0] == "text" and call[2] < 4]
+        self.assertEqual(header_text, [])
+        icons = [call for call in canvas.calls if call[0] == "bitmap"]
+        self.assertEqual(len(icons), 2)
+        pc_icon, wifi_icon = icons
+        self.assertEqual(pc_icon[1:6], (4, 0, ICON_WIDTH, ICON_HEIGHT, ICON_PC))
+        self.assertEqual(
+            wifi_icon[1:6],
+            (canvas.width - 4 - ICON_WIDTH, 0, ICON_WIDTH, ICON_HEIGHT, ICON_WIFI),
         )
+        self.assertEqual(pc_icon[6], ICON_ACTIVE if pc_active else ICON_INACTIVE)
+        self.assertEqual(wifi_icon[6], ICON_ACTIVE if wifi_ok else ICON_INACTIVE)
+        for icon in icons:
+            self.assertGreaterEqual(icon[1], 0)
+            self.assertGreaterEqual(icon[2], 0)
+            self.assertLessEqual(icon[1] + icon[3], canvas.width)
+            self.assertLessEqual(icon[2] + icon[4], canvas.height)
+
+    def test_status_icons_are_antialiased_112_byte_masks(self):
+        for packed in (ICON_PC, ICON_WIFI):
+            self.assertEqual(len(packed), ICON_WIDTH * ICON_HEIGHT // 2)
+            coverage = unpack_coverage(packed, ICON_WIDTH * ICON_HEIGHT)
+            self.assertEqual(coverage[0], 0)
+            self.assertEqual(coverage[-1], 0)
+            self.assertIn(15, coverage)
+            self.assertTrue(any(0 < value < 15 for value in coverage))
 
     def test_dashboard_shows_missing_and_invalid_percentages_as_dashes(self):
         canvas = RecordingCanvas()
@@ -422,8 +466,10 @@ class PartialRefreshTests(unittest.TestCase):
         for call in canvas.calls:
             if call[0] == "rect":
                 self.assertLess(call[2] + call[4], 15)
-            elif call[0] == "text":
-                self.assertEqual(call[2], 1)
+        icons = [call for call in canvas.calls if call[0] == "bitmap"]
+        self.assertEqual(len(icons), 2)
+        self.assertTrue(all(call[2] == 0 for call in icons))
+        self.assertEqual(icons[1][6], ICON_INACTIVE)
 
     def test_dashboard_rate_change_updates_only_its_row(self):
         for key, row_y in (("rx", 130), ("tx", 145)):
@@ -468,7 +514,7 @@ class PartialRefreshTests(unittest.TestCase):
 
         self.assertNotIn("fill", [call[0] for call in canvas.calls])
         self.assertTrue(canvas.calls)
-        self.assertFalse(any(call[0] == "text" and call[2] == 1 for call in canvas.calls))
+        self.assertFalse(any(call[0] == "bitmap" for call in canvas.calls))
 
     def test_unchanged_clock_frame_performs_no_writes(self):
         canvas = RecordingCanvas()

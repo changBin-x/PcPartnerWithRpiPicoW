@@ -32,6 +32,32 @@ GREEN = rgb565(110, 231, 168)
 AMBER = rgb565(243, 184, 91)
 TRACK = rgb565(23, 48, 71)
 
+ICON_WIDTH = 16
+ICON_HEIGHT = 14
+ICON_ACTIVE = GREEN
+# (待补充：非激活颜色) 暂沿用现有警示色 AMBER，与激活色 GREEN 区分度最高。
+ICON_INACTIVE = AMBER
+
+# 16x14 四级灰度掩码，高半字节在前，每像素 4 bit，共 112 字节，直接放在 flash 中。
+ICON_PC = (
+    b"\x00\x04\x44\x44\x44\x44\x40\x00\x01\xef\xff\xff\xff\xff\xfe\x10"
+    b"\x07\xf4\x44\x44\x44\x44\x4f\x70\x08\xf0\x00\x00\x00\x00\x0f\x80"
+    b"\x08\xf0\x00\x00\x00\x00\x0f\x80\x08\xf0\x00\x00\x00\x00\x0f\x80"
+    b"\x08\xf0\x00\x00\x00\x00\x0f\x80\x08\xf0\x00\x00\x00\x00\x0f\x80"
+    b"\x02\xef\xff\xff\xff\xff\xfe\x20\x00\x28\x88\x8f\xf8\x88\x82\x00"
+    b"\x00\x00\x00\x0f\xf0\x00\x00\x00\x00\x00\x8f\xff\xff\xf8\x00\x00"
+    b"\x00\x00\x24\x44\x44\x42\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+)
+ICON_WIFI = (
+    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x37\x8a\xa8\x73\x00\x00"
+    b"\x00\x6d\xff\xff\xff\xff\xd6\x00\x2d\xfe\x95\x30\x03\x59\xef\xd2"
+    b"\x0c\x81\x00\x24\x42\x00\x18\xc0\x00\x02\x9e\xff\xff\xe9\x20\x00"
+    b"\x00\x3f\xfd\x88\x88\xdf\xf3\x00\x00\x08\x40\x00\x00\x04\x80\x00"
+    b"\x00\x00\x04\xab\xba\x40\x00\x00\x00\x00\x4f\xfd\xdf\xf4\x00\x00"
+    b"\x00\x00\x06\x20\x02\x60\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    b"\x00\x00\x00\x09\x90\x00\x00\x00\x00\x00\x00\x08\x80\x00\x00\x00"
+)
+
 
 def _safe_percent(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -230,12 +256,20 @@ def _dashboard_state(time_text, weekday_short, date_text, weather, metrics, wifi
     }
 
 
+def _draw_status_icons(canvas, pc_active, wifi_ok):
+    """Draw the PC and Wi-Fi indicators; only the colour carries the state."""
+    canvas.bitmap(
+        4, 0, ICON_WIDTH, ICON_HEIGHT, ICON_PC,
+        ICON_ACTIVE if pc_active else ICON_INACTIVE, BG,
+    )
+    canvas.bitmap(
+        canvas.width - 4 - ICON_WIDTH, 0, ICON_WIDTH, ICON_HEIGHT, ICON_WIFI,
+        ICON_ACTIVE if wifi_ok else ICON_INACTIVE, BG,
+    )
+
+
 def _draw_dashboard_header(canvas, wifi_ok):
-    title = "PC MONITOR" if wifi_ok else "PC"
-    canvas.text(4, 1, title, CYAN_LIGHT, BG)
-    wifi_text = "WIFI" if wifi_ok else "NO WIFI"
-    wifi_color = GREEN if wifi_ok else AMBER
-    canvas.text(92 if wifi_ok else 68, 1, wifi_text, wifi_color, BG)
+    _draw_status_icons(canvas, True, wifi_ok)
 
 
 def _draw_dashboard_time(canvas, state):
@@ -367,11 +401,7 @@ def _clock_state(
 
 
 def _draw_clock_header(canvas, wifi_ok):
-    title = "PC OFFLINE" if wifi_ok else "PC OFF"
-    canvas.text(4, 1, title, MUTED, BG)
-    wifi_text = "WIFI" if wifi_ok else "NO WIFI"
-    wifi_color = GREEN if wifi_ok else AMBER
-    canvas.text(92 if wifi_ok else 68, 1, wifi_text, wifi_color, BG)
+    _draw_status_icons(canvas, False, wifi_ok)
 
 
 def _draw_clock_body(canvas, state):
