@@ -440,8 +440,19 @@ class AmapWeatherService:
                 "weather": condition.strip(),
                 "temperature": temperature,
             }
+            print("WX ok %s %s" % (temperature, weather_data["weather"]))
             success = True
-        except Exception:
+        except Exception as error:
+            # Only the type name and numeric errno are printed: messages can
+            # carry the URL, key or response payload.
+            reason = type(error).__name__
+            try:
+                code = error.args[0]
+                if isinstance(code, int):
+                    reason = "%s %d" % (reason, code)
+            except (AttributeError, IndexError, TypeError):
+                pass
+            print("WX err %s" % reason)
             weather_data = None
             success = False
 
