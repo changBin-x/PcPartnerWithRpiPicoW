@@ -47,7 +47,9 @@ notepad pico/weather_secrets.py
 
 天气请求在 Wi‑Fi 连接且 NTP 校时成功后由后台线程发起，TLS 会校验证书链和主机名，不会在绘屏主循环中同步访问网络。成功后每 30 分钟刷新；失败按 1、5、15、30 分钟退避重试，Wi‑Fi 重连时立即重试。温度固定显示摄氏度。最近一次成功天气只缓存在 RAM；断网或接口失败时保留并标为旧数据，断电重启后重新获取。仪表盘用天气行替换农历行，离线时钟仍显示天气和完整农历。
 
-接口说明：[高德 IP 定位](https://lbs.amap.com/api/webservice/guide/api/ipconfig)、[高德天气查询](https://lbs.amap.com/api/webservice/guide/api/weatherinfo)。2026-11-01 已在开发机当前 Wi‑Fi 上由 Pico 实测完成 IP 定位和天气查询；这只证明当前网络可达，展会或其他路由仍需现场确认。
+Pico W 的可用堆很紧张：完整应用启动后约 125 KB 空闲堆，而高德 HTTPS 请求峰值会占去其中大部分。中文点阵字库因此改为按需读取设备上的 `font_cn.bin`，不再整份驻留 RAM；部署清单必须包含该文件与 `pico/glyph_font.py`，漏传时汉字会显示为空白。
+
+接口说明：[高德 IP 定位](https://lbs.amap.com/api/webservice/guide/api/ipconfig)、[高德天气查询](https://lbs.amap.com/api/webservice/guide/api/weatherinfo)。2026-11-01 已在开发机当前 Wi‑Fi 上由 Pico 实测完成 IP 定位和天气查询：修复堆内存不足后，冷启动 2–10 秒内即取到城市、现象和温度，160 秒观测窗口内无失败。这只证明当前网络可达，展会或其他路由仍需现场确认。
 
 确保 COM4 没有被 Thonny 等串口程序占用，然后运行：
 
@@ -55,7 +57,7 @@ notepad pico/weather_secrets.py
 powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1
 ```
 
-脚本先检查本地文件、COM4 和 MicroPython 运行环境，再把应用、天气 TLS 根证书和本地配置放入设备 `/pico/`，将启动入口复制为设备根目录 `/main.py`，最后重启 Pico。它不会删除设备上的其他文件。
+脚本先检查本地文件、COM4 和 MicroPython 运行环境，再把应用、天气 TLS 根证书、中文点阵字库 `font_cn.bin` 和本地配置放入设备 `/pico/`，将启动入口复制为设备根目录 `/main.py`，最后重启 Pico。它不会删除设备上的其他文件。
 
 部署后检查：
 
@@ -65,6 +67,8 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1
 4. 断开 Pico 电源再接回，不打开 Thonny，确认程序自动启动。
 
 若 PC 网卡有多个地址，确认有线网卡网关与目标广播子网一致；若 Pico 收不到 UDP，检查访客 Wi‑Fi/客户端隔离及有线、无线是否处于同一广播域。
+
+天气取数结果会打印到串口（115200 波特率）：成功是 `WX ok <温度> <现象>`，失败是 `WX err <异常类型> <errno>`（只打印类型与错误码，不含 URL、Key 或响应体）。用只读方式连上串口观察即可，不要发送 Ctrl-C 中断正在运行的程序。
 
 ## 时钟和农历来源
 
