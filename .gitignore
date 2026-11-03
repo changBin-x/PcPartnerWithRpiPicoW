@@ -7,5 +7,9 @@ __pycache__/
 pico/wifi_secrets.py
 pico/weather_secrets.py
 logs/
-!docs/superpowers/
-!docs/superpowers/**
+docs/superpowers/plans/
+docs/superpowers/specs/
+docs/PROJECT_HANDOFF.md
+AGENTS.md
+CONTEXT.md
+.dsh-vision-router
