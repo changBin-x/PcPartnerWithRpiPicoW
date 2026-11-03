@@ -135,6 +135,9 @@ def _color_bytes(color):
 class ST7735:
     """A portrait display that writes bounded regions without a framebuffer."""
 
+    width = WIDTH
+    height = HEIGHT
+
     def __init__(self, spi=None, cs=None, dc=None, rst=None):
         from machine import Pin, SPI
 
@@ -306,7 +309,7 @@ class ST7735:
     def _draw_chinese(self, x, y, character, color, background):
         glyph = FONT_CN.get(character)
         if glyph is None:
-            glyph = CHINESE_PLACEHOLDER_GLYPH
+            raise ValueError("缺少中文字形: %s" % character)
         self._draw_coverage(x, y, CHINESE_WIDTH, CHINESE_HEIGHT, glyph, color, background)
         return CHINESE_WIDTH
 

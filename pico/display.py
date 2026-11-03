@@ -1,4 +1,4 @@
-"""Compact 128x160 layouts for the online dashboard and offline clock."""
+"""Compact 128x160 Material Design 3 layouts for the online dashboard and offline clock."""
 
 import math
 
@@ -22,21 +22,34 @@ except ImportError:
     from st7735 import rgb565
 
 
-BG = rgb565(7, 17, 31)
-CARD = rgb565(13, 29, 46)
-TEXT = rgb565(232, 245, 255)
-MUTED = rgb565(155, 178, 201)
-CYAN = rgb565(39, 195, 219)
-CYAN_LIGHT = rgb565(134, 216, 245)
-GREEN = rgb565(110, 231, 168)
-AMBER = rgb565(243, 184, 91)
-TRACK = rgb565(23, 48, 71)
+# Material Design 3 Dark Theme Surface & Tonal Tokens (RGB565)
+BG = rgb565(17, 19, 24)                  # 0x1083 - Surface (#111318)
+SURFACE_CONTAINER = rgb565(30, 32, 37)   # 0x1904 - Surface Container (#1E2025)
+SURFACE_CONTAINER_HIGH = rgb565(40, 42, 47)  # 0x2945 - Surface Container High (#282A2F)
+TRACK = rgb565(51, 53, 58)               # 0x31A7 - Track / Outline (#33353A)
+CARD = SURFACE_CONTAINER                 # Backward-compatible alias
+
+# M3 Typography & Content Colors
+TEXT = rgb565(226, 226, 233)             # 0xE71C - On Surface (#E2E2E9)
+MUTED = rgb565(144, 144, 154)            # 0x8C93 - On Surface Variant (#90909A)
+OUTLINE = rgb565(72, 74, 80)             # Outline border (#484A50)
+
+# M3 Accent Roles
+PRIMARY = rgb565(168, 199, 250)          # 0xAE3F - Primary 冰湖蓝 (#A8C7FA)
+SECONDARY = rgb565(160, 211, 206)        # 0xA699 - Secondary 水鸭绿 (#A0D3CE)
+TERTIARY = rgb565(242, 190, 141)         # 0xF5F1 - Tertiary 柔暖杏 (#F2BE8D)
+ERROR = rgb565(242, 184, 181)            # 0xF5D6 - Error 珊瑚粉红 (#F2B8B5)
+
+# Color compatibility aliases
+CYAN = PRIMARY
+CYAN_LIGHT = SECONDARY
+GREEN = SECONDARY
+AMBER = TERTIARY
 
 ICON_WIDTH = 16
 ICON_HEIGHT = 14
-ICON_ACTIVE = GREEN
-# (待补充：非激活颜色) 暂沿用现有警示色 AMBER，与激活色 GREEN 区分度最高。
-ICON_INACTIVE = AMBER
+ICON_ACTIVE = PRIMARY
+ICON_INACTIVE = ERROR
 
 # 16x14 四级灰度掩码，高半字节在前，每像素 4 bit，共 112 字节，直接放在 flash 中。
 ICON_PC = (
@@ -128,7 +141,24 @@ def _clip_text(value, max_width):
     return result
 
 
+def _draw_card_container(canvas, x, y, width, height, color=SURFACE_CONTAINER):
+    """Draw an M3 container card with chamfered corners for a soft look."""
+    canvas.fill_rect(x + 1, y, width - 2, 1, color)
+    canvas.fill_rect(x, y + 1, width, height - 2, color)
+    canvas.fill_rect(x + 1, y + height - 1, width - 2, 1, color)
+
+
 def _weather_state(weather):
+    if isinstance(weather, str):
+        clean = _clean_weather_text(weather)
+        return {
+            "has_data": False,
+            "city": "",
+            "condition": "",
+            "temperature": None,
+            "is_stale": False,
+            "status": clean if clean else "天气暂不可用",
+        }
     if not isinstance(weather, dict):
         weather = {}
     has_data = bool(weather.get("has_data"))
@@ -156,7 +186,7 @@ def _weather_state(weather):
                 "status": "",
             }
     status = weather.get("status", "天气暂不可用")
-    if status not in ("天气获取中", "天气暂不可用", "天气未配置"):
+    if status not in ("天气获取中", "天气暂不可用", "天气未配置", "WIFI CONFIG"):
         status = "天气暂不可用"
     return {
         "has_data": False,
@@ -169,22 +199,25 @@ def _weather_state(weather):
 
 
 def _draw_weather_row(canvas, y, state, panel=False):
+    """Draw M3 weather capsule container."""
+    container_x = 4
+    container_w = 120
+    container_h = 15
+    bg_color = SURFACE_CONTAINER if panel else BG
     if panel:
-        canvas.fill_rect(4, y - 1, 120, 15, CARD)
-        background = CARD
+        _draw_card_container(canvas, container_x, y - 1, container_w, container_h, bg_color)
     else:
-        canvas.fill_rect(0, y, canvas.width, CHINESE_HEIGHT, BG)
-        background = BG
+        canvas.fill_rect(0, y, canvas.width, CHINESE_HEIGHT, bg_color)
 
     if not state["has_data"]:
-        text = _clip_text(state["status"], canvas.width - 8)
-        canvas.text(4, y, text, MUTED, background)
+        text = _clip_text(state["status"], container_w - 8)
+        canvas.text(container_x + 4, y, text, MUTED, bg_color)
         return
 
-    city_x = 4
+    city_x = container_x + 4
     if state["is_stale"]:
-        canvas.text(4, y, "旧", AMBER, background)
-        city_x = 18
+        canvas.text(city_x, y, "旧", TERTIARY, bg_color)
+        city_x += 14
 
     city = state["city"]
     for suffix in ("市", "地区", "自治州", "盟"):
@@ -195,19 +228,20 @@ def _draw_weather_row(canvas, y, state, panel=False):
     temperature_width = (
         len(str(state["temperature"])) * WEATHER_DIGIT_WIDTH + CHINESE_WIDTH
     )
-    temperature_x = canvas.width - 4 - temperature_width
-    left_end = temperature_x - 8
+    temperature_x = container_x + container_w - 4 - temperature_width
+    left_end = temperature_x - 6
     city_width = min(42, left_end - city_x)
     city_text = _clip_text(city, city_width)
-    condition_x = city_x + _text_width(city_text)
+    condition_x = city_x + _text_width(city_text) + (4 if city_text else 0)
     condition_width = max(0, left_end - condition_x)
     condition_text = _clip_text(state["condition"], condition_width)
-    if city_text:
-        canvas.text(city_x, y, city_text, MUTED, background)
-    if condition_text:
-        canvas.text(condition_x, y, condition_text, CYAN_LIGHT, background)
 
-    canvas.weather_temperature(temperature_x, y, temperature_text, CYAN, background)
+    if city_text:
+        canvas.text(city_x, y, city_text, MUTED, bg_color)
+    if condition_text:
+        canvas.text(condition_x, y, condition_text, SECONDARY, bg_color)
+
+    canvas.weather_temperature(temperature_x, y, temperature_text, PRIMARY, bg_color)
 
 
 def _centered_text(canvas, y, value, color, background=BG):
@@ -218,13 +252,15 @@ def _centered_text(canvas, y, value, color, background=BG):
 
 
 def _metric_card_state(canvas, y, name, value_text, percent, color):
+    """Draw M3 resource metric card."""
     card_x = 4
     card_width = 120
     card_height = 20
-    canvas.fill_rect(card_x, y, card_width, card_height, CARD)
-    canvas.fill_rect(card_x, y, 2, card_height, color)
-    canvas.text(10, y + 1, name, CYAN_LIGHT, CARD)
-    canvas.text(82, y + 1, value_text, TEXT, CARD)
+    _draw_card_container(canvas, card_x, y, card_width, card_height, SURFACE_CONTAINER)
+    # Accent color indicator bar
+    canvas.fill_rect(card_x + 1, y + 2, 2, card_height - 4, color)
+    canvas.text(10, y + 1, name, color, SURFACE_CONTAINER)
+    canvas.text(82, y + 1, value_text, TEXT, SURFACE_CONTAINER)
     bar_x = 10
     bar_y = y + 15
     bar_width = 108
@@ -237,6 +273,22 @@ def _metric_card_state(canvas, y, name, value_text, percent, color):
 def _clear_text_row(canvas, y):
     canvas.fill_rect(0, y, canvas.width, CHINESE_HEIGHT, BG)
 
+
+def _draw_status_icons(canvas, pc_active, wifi_ok, y=0):
+    """Draw PC and Wi-Fi indicator icons at the top."""
+    canvas.bitmap(
+        4, y, ICON_WIDTH, ICON_HEIGHT, ICON_PC,
+        ICON_ACTIVE if pc_active else ICON_INACTIVE, BG,
+    )
+    canvas.bitmap(
+        canvas.width - 4 - ICON_WIDTH, y, ICON_WIDTH, ICON_HEIGHT, ICON_WIFI,
+        ICON_ACTIVE if wifi_ok else ICON_INACTIVE, BG,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dashboard Mode
+# ---------------------------------------------------------------------------
 
 def _dashboard_state(time_text, weekday_short, date_text, weather, metrics, wifi_ok):
     has_time = bool(time_text)
@@ -256,20 +308,8 @@ def _dashboard_state(time_text, weekday_short, date_text, weather, metrics, wifi
     }
 
 
-def _draw_status_icons(canvas, pc_active, wifi_ok):
-    """Draw the PC and Wi-Fi indicators; only the colour carries the state."""
-    canvas.bitmap(
-        4, 0, ICON_WIDTH, ICON_HEIGHT, ICON_PC,
-        ICON_ACTIVE if pc_active else ICON_INACTIVE, BG,
-    )
-    canvas.bitmap(
-        canvas.width - 4 - ICON_WIDTH, 0, ICON_WIDTH, ICON_HEIGHT, ICON_WIFI,
-        ICON_ACTIVE if wifi_ok else ICON_INACTIVE, BG,
-    )
-
-
 def _draw_dashboard_header(canvas, wifi_ok):
-    _draw_status_icons(canvas, True, wifi_ok)
+    _draw_status_icons(canvas, True, wifi_ok, y=0)
 
 
 def _draw_dashboard_time(canvas, state):
@@ -288,14 +328,15 @@ def _draw_dashboard_full(canvas, state):
     _draw_dashboard_time(canvas, state)
     _draw_dashboard_date(canvas, state)
     _draw_weather_row(canvas, 45, state["weather"], panel=True)
-    canvas.hline(4, 59, 120, CARD)
+    canvas.hline(4, 59, 120, TRACK)
     cpu_text, cpu_percent = state["cpu"]
     gpu_text, gpu_percent = state["gpu"]
     ram_text, ram_percent = state["ram"]
-    _metric_card_state(canvas, 61, "CPU", cpu_text, cpu_percent, CYAN)
-    _metric_card_state(canvas, 83, "GPU", gpu_text, gpu_percent, CYAN)
-    _metric_card_state(canvas, 105, "RAM", ram_text, ram_percent, AMBER)
-    canvas.hline(4, 128, 120, CARD)
+    _metric_card_state(canvas, 61, "CPU", cpu_text, cpu_percent, PRIMARY)
+    _metric_card_state(canvas, 83, "GPU", gpu_text, gpu_percent, SECONDARY)
+    ram_color = ERROR if ram_percent > 90 else TERTIARY
+    _metric_card_state(canvas, 105, "RAM", ram_text, ram_percent, ram_color)
+    canvas.hline(4, 128, 120, TRACK)
     canvas.text(0, 130, state["rx_text"], TEXT, BG)
     canvas.text(0, 145, state["tx_text"], TEXT, BG)
 
@@ -312,14 +353,16 @@ def _draw_dashboard_changes(canvas, previous, current):
         _draw_dashboard_date(canvas, current)
     if previous["weather"] != current["weather"]:
         _draw_weather_row(canvas, 45, current["weather"], panel=True)
-    for key, y, name, color in (
-        ("cpu", 61, "CPU", CYAN),
-        ("gpu", 83, "GPU", CYAN),
-        ("ram", 105, "RAM", AMBER),
-    ):
-        if previous[key] != current[key]:
-            value_text, percent = current[key]
-            _metric_card_state(canvas, y, name, value_text, percent, color)
+    if previous["cpu"] != current["cpu"]:
+        val, pct = current["cpu"]
+        _metric_card_state(canvas, 61, "CPU", val, pct, PRIMARY)
+    if previous["gpu"] != current["gpu"]:
+        val, pct = current["gpu"]
+        _metric_card_state(canvas, 83, "GPU", val, pct, SECONDARY)
+    if previous["ram"] != current["ram"]:
+        val, pct = current["ram"]
+        ram_color = ERROR if pct > 90 else TERTIARY
+        _metric_card_state(canvas, 105, "RAM", val, pct, ram_color)
     if previous["rx_text"] != current["rx_text"]:
         _clear_text_row(canvas, 130)
         canvas.text(0, 130, current["rx_text"], TEXT, BG)
@@ -348,6 +391,10 @@ def draw_dashboard(
         _draw_dashboard_changes(canvas, previous, current)
     return current
 
+
+# ---------------------------------------------------------------------------
+# Clock Mode
+# ---------------------------------------------------------------------------
 
 def _valid_time_text(value):
     return (
@@ -392,42 +439,38 @@ def _clock_state(
         "weekday_full": (weekday_full or "") if time_valid else "",
         "lunar_text": (lunar_text or "") if time_valid else "",
         "weather": weather_state,
-        "footer": (
-            ("NTP SYNC UTC+8" if time_synced else "NTP NOT SYNCED")
-            if time_valid
-            else "NTP WAIT UTC+8"
-        ),
+        "time_synced": bool(time_synced),
     }
 
 
 def _draw_clock_header(canvas, wifi_ok):
-    _draw_status_icons(canvas, False, wifi_ok)
+    _draw_status_icons(canvas, False, wifi_ok, y=0)
 
 
 def _draw_clock_body(canvas, state):
     if state["time_valid"]:
         canvas.clock_text(12, 34, state["time_text"], TEXT, BG)
+        # M3 复合日历大卡片 (4, 70, 120, 80)
+        _draw_card_container(canvas, 4, 70, 120, 80, SURFACE_CONTAINER)
         if state["date_text"]:
-            _centered_text(canvas, 77, state["date_text"], MUTED, BG)
+            _centered_text(canvas, 77, state["date_text"], TEXT, SURFACE_CONTAINER)
         if state["weekday_full"]:
-            _centered_text(canvas, 96, state["weekday_full"], CYAN_LIGHT, BG)
+            _draw_card_container(canvas, 36, 94, 56, 18, SURFACE_CONTAINER_HIGH)
+            _centered_text(canvas, 96, state["weekday_full"], SECONDARY, SURFACE_CONTAINER_HIGH)
         if state["lunar_text"]:
-            _centered_text(canvas, 115, state["lunar_text"], AMBER, BG)
+            _centered_text(canvas, 115, state["lunar_text"], TERTIARY, SURFACE_CONTAINER)
     else:
-        _centered_text(canvas, 60, "时间同步中", AMBER, BG)
-    canvas.hline(8, 136, 112, CARD)
-    _centered_text(canvas, 145, state["footer"], MUTED, BG)
-
-
-def _clear_clock_body(canvas):
-    canvas.fill_rect(0, 34, canvas.width, 26, BG)
-    canvas.fill_rect(0, 60, canvas.width, 100, BG)
+        # 优雅骨架与占位
+        canvas.text(32, 40, "--:--:--", MUTED, BG)
+        _draw_card_container(canvas, 4, 70, 120, 80, SURFACE_CONTAINER)
+        _draw_card_container(canvas, 24, 94, 80, 20, SURFACE_CONTAINER_HIGH)
+        _centered_text(canvas, 97, "时间同步中", SECONDARY, SURFACE_CONTAINER_HIGH)
 
 
 def _draw_clock_full(canvas, state):
     canvas.fill(BG)
     _draw_clock_header(canvas, state["wifi_ok"])
-    _draw_weather_row(canvas, 15, state["weather"])
+    _draw_weather_row(canvas, 15, state["weather"], panel=True)
     _draw_clock_body(canvas, state)
 
 
@@ -437,10 +480,10 @@ def _draw_clock_changes(canvas, previous, current):
         _draw_clock_header(canvas, current["wifi_ok"])
 
     if previous["weather"] != current["weather"]:
-        _draw_weather_row(canvas, 15, current["weather"])
+        _draw_weather_row(canvas, 15, current["weather"], panel=True)
 
     if previous["time_valid"] != current["time_valid"]:
-        _clear_clock_body(canvas)
+        canvas.fill_rect(0, 34, canvas.width, 126, BG)
         _draw_clock_body(canvas, current)
         return
 
@@ -448,21 +491,18 @@ def _draw_clock_changes(canvas, previous, current):
         if previous["time_text"] != current["time_text"]:
             canvas.clock_text(12, 34, current["time_text"], TEXT, BG)
         if previous["date_text"] != current["date_text"]:
-            _clear_text_row(canvas, 77)
+            canvas.fill_rect(6, 75, 116, CHINESE_HEIGHT, SURFACE_CONTAINER)
             if current["date_text"]:
-                _centered_text(canvas, 77, current["date_text"], MUTED, BG)
+                _centered_text(canvas, 77, current["date_text"], TEXT, SURFACE_CONTAINER)
         if previous["weekday_full"] != current["weekday_full"]:
-            _clear_text_row(canvas, 96)
+            _draw_card_container(canvas, 36, 94, 56, 18, SURFACE_CONTAINER_HIGH)
             if current["weekday_full"]:
-                _centered_text(canvas, 96, current["weekday_full"], CYAN_LIGHT, BG)
+                _centered_text(canvas, 96, current["weekday_full"], SECONDARY, SURFACE_CONTAINER_HIGH)
         if previous["lunar_text"] != current["lunar_text"]:
-            _clear_text_row(canvas, 115)
+            canvas.fill_rect(6, 115, 116, CHINESE_HEIGHT, SURFACE_CONTAINER)
             if current["lunar_text"]:
-                _centered_text(canvas, 115, current["lunar_text"], AMBER, BG)
+                _centered_text(canvas, 115, current["lunar_text"], TERTIARY, SURFACE_CONTAINER)
 
-    if previous["footer"] != current["footer"]:
-        _clear_text_row(canvas, 145)
-        _centered_text(canvas, 145, current["footer"], MUTED, BG)
 
 def draw_clock(
     canvas,

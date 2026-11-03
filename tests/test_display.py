@@ -318,9 +318,7 @@ class DisplayTests(unittest.TestCase):
         self.assertIn("2026年10月31日", visible_text)
         self.assertIn("星期六", visible_text)
         self.assertIn("丙午年九月廿二", visible_text)
-        self.assertTrue(any(
-            value.startswith("NTP") for value in visible_text if isinstance(value, str)
-        ))
+        self.assertNotIn("NTP", "".join(str(value) for value in visible_text))
         for call in canvas.calls:
             if call[0] == "text":
                 self.assertLessEqual(call[1] + _text_width(call[3]), canvas.width)
@@ -490,7 +488,7 @@ class PartialRefreshTests(unittest.TestCase):
                     elif call[0] == "text":
                         self.assertEqual(call[2], row_y)
 
-    def test_clock_sync_change_updates_only_footer(self):
+    def test_clock_sync_change_does_not_draw_removed_footer(self):
         canvas = RecordingCanvas()
         previous = _draw_clock_frame(canvas)
         canvas.calls.clear()
@@ -498,12 +496,7 @@ class PartialRefreshTests(unittest.TestCase):
         _draw_clock_frame(canvas, previous=previous, time_synced=False)
 
         self.assertNotIn("fill", [call[0] for call in canvas.calls])
-        self.assertTrue(canvas.calls)
-        for call in canvas.calls:
-            if call[0] == "rect":
-                self.assertGreaterEqual(call[2], 145)
-            elif call[0] == "text":
-                self.assertEqual(call[2], 145)
+        self.assertEqual(canvas.calls, [])
 
     def test_invalid_to_valid_clock_repaints_content_without_header(self):
         canvas = RecordingCanvas()
@@ -553,11 +546,9 @@ class PartialRefreshTests(unittest.TestCase):
         self.assertIn("WIFI CONFIG", [call[3] for call in canvas.calls if call[0] == "text"])
         for call in canvas.calls:
             if call[0] == "rect":
-                self.assertTrue(23 <= call[2] < 38)
-            elif call[0] == "clock":
-                self.assertEqual(call[2], 34)
+                self.assertTrue(14 <= call[2] < 32)
             elif call[0] == "text":
-                self.assertEqual(call[2], 23)
+                self.assertEqual(call[2], 15)
 
 
 if __name__ == "__main__":
