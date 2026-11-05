@@ -6,6 +6,8 @@
 #define configUSE_TIME_SLICING                   1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION  0
 #define configUSE_TICKLESS_IDLE                  0
+#define configUSE_IDLE_HOOK                      0
+#define configUSE_TICK_HOOK                      0
 #define configCPU_CLOCK_HZ                       125000000
 #define configTICK_RATE_HZ                       1000
 #define configMAX_PRIORITIES                     8
@@ -27,6 +29,8 @@
 #define configTICK_CORE                          0
 #define configRUN_MULTIPLE_PRIORITIES            1
 #define configUSE_CORE_AFFINITY                  1
+/* SMP 端口要求显式定义；被动空闲钩子仅随 configUSE_PASSIVE_IDLE_HOOK 生效。 */
+#define configUSE_PASSIVE_IDLE_HOOK              0
 
 /* ------------------------------------------------------------------ 内存分配 */
 #define configSUPPORT_STATIC_ALLOCATION          1
@@ -40,10 +44,22 @@
 #define INCLUDE_vTaskSuspend                     1
 #define INCLUDE_vTaskDelayUntil                  1
 #define INCLUDE_vTaskDelay                       1
+#define INCLUDE_xSemaphoreGetMutexHolder         1
 #define INCLUDE_xTaskGetSchedulerState           1
 #define INCLUDE_xTaskGetCurrentTaskHandle        1
 #define INCLUDE_uxTaskGetStackHighWaterMark      1
 #define INCLUDE_xTimerGetTimerDaemonTaskHandle   1
+#define INCLUDE_xTimerPendFunctionCall           1
+
+/* --------------------------------------------------------------- 内核定时器 */
+/* RP2040 SMP 端口在 configSUPPORT_PICO_SYNC_INTEROP 打开时，会用
+ * xEventGroupSetBitsFromISR 在中断里唤醒等待自旋锁的另一核；该 API 由定时器
+ * 守护任务实现，故必须启用 configUSE_TIMERS，否则 port.c 出现隐式声明并在
+ * 链接期缺符号。 */
+#define configUSE_TIMERS                         1
+#define configTIMER_TASK_PRIORITY                (configMAX_PRIORITIES - 1)
+#define configTIMER_QUEUE_LENGTH                 16
+#define configTIMER_TASK_STACK_DEPTH             256
 
 /* --------------------------------------------------------------------- 断言 */
 /* 主机编译单元不参与固件链接；固件侧在 main.c 中提供 configASSERT 实现。 */
