@@ -27,6 +27,11 @@
  * 都被判为「尚未生效」）。 */
 /* ------------------------------------------------------------------ */
 #define MBEDTLS_HAVE_TIME
+/* HAVE_TIME 只保证 mbedTLS 拿得到「现在几点」，证书与 CRL 的生效/过期判定
+ * 另由 HAVE_TIME_DATE 控制——不定义它，x509_crt.c 里那几处时间比较会被整段
+ * 编译掉，一张早已过期的证书也会被当成有效。对走公网的 HTTPS 客户端来说这
+ * 是实打实的安全缺口，必须打开。 */
+#define MBEDTLS_HAVE_TIME_DATE
 #define MBEDTLS_PLATFORM_C
 #define MBEDTLS_PLATFORM_TIME_ALT
 /* PSA 的时间戳同样要走应用侧实现（mbedtls_ms_time），裸机上没有 POSIX
