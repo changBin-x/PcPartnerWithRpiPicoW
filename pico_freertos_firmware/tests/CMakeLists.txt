@@ -6,6 +6,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror -g -O1")
+# 测试用 assert 做断言，任何构建类型下都不能被 NDEBUG 裁掉。
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -UNDEBUG")
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
