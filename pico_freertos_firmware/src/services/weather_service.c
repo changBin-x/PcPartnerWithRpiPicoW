@@ -751,7 +751,10 @@ static bool weather_send_request(void) {
                "Accept-Encoding: identity\r\n"
                "Connection: close\r\n"
                "\r\n",
-               s_weather_key, kWeatherDefaultAdcode);
+               s_weather_key,
+               /* CITY_OVERRIDE_ADCODE 配置过就听用户的，否则用内置默认城市。 */
+               kFirmwareWeatherAdcode[0] != '\0' ? kFirmwareWeatherAdcode
+                                                 : kWeatherDefaultAdcode);
   if (length <= 0 || (size_t)length >= sizeof(s_request)) {
     weather_log_error("构造请求", -1);
     return false;

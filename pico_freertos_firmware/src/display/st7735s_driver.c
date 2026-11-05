@@ -13,8 +13,8 @@
 enum {
   kPinSck = 18,
   kPinMosi = 19,
-  kPinCs = 16,
-  kPinDc = 17,
+  kPinCs = 17,
+  kPinDc = 21,
   kPinRst = 20,
 };
 
@@ -221,8 +221,12 @@ bool st7735s_init(void) {
 
   gpio_set_function(kPinSck, GPIO_FUNC_SPI);
   gpio_set_function(kPinMosi, GPIO_FUNC_SPI);
-  /* spi_init 内部按 clk_peri 计算分频，并设置 8 位/CPOL=0/CPHA=0/MSB。 */
-  spi_init(kSpi, 62500000);
+  /* spi_init 内部按 clk_peri 计算分频，并设置 8 位/CPOL=0/CPHA=0/MSB。
+   * 波特率取 20 MHz：这与仓库里已在实机上跑通的 MicroPython 驱动
+   * (pico/st7735.py 的 baudrate=20_000_000) 完全一致。整屏 40960 字节
+   * 传完约 16 毫秒，配上双缓冲 DMA 已经够用；再往上提高只是徒增
+   * 手工跳线上的信号完整性风险，而本项目无法在硬件上回归验证。 */
+  spi_init(kSpi, 20000000);
 
   st7735s_hardware_reset();
   gpio_put(kPinCs, 0);

@@ -34,6 +34,8 @@ TEMPLATE = """\
 #define kFirmwareWifiPassword "{password}"
 /* 高德 Web 服务 Key，空字符串表示未配置天气功能。 */
 #define kFirmwareAmapWebKey "{amap_key}"
+/* 高德 adcode（行政区划代码），空字符串表示用固件内置默认城市。 */
+#define kFirmwareWeatherAdcode "{adcode}"
 
 #endif /* PICO_FREERTOS_FIRMWARE_INCLUDE_FIRMWARE_SECRETS_H_ */
 """
@@ -75,18 +77,21 @@ def main():
     ssid = wifi.get("SSID", "")
     password = wifi.get("PASSWORD", "")
     amap_key = weather.get("AMAP_WEB_KEY", "")
+    adcode = weather.get("CITY_OVERRIDE_ADCODE", "")
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(
         TEMPLATE.format(
             ssid=escape(ssid),
             password=escape(password),
             amap_key=escape(amap_key),
+            adcode=escape(adcode),
         ),
         encoding="utf-8",
     )
     print(f"OK: 已生成 {OUTPUT.relative_to(REPO_ROOT)}")
     print(f"    Wi-Fi SSID {'已配置' if ssid else '未配置'}")
     print(f"    高德 Key  {'已配置' if amap_key else '未配置'}")
+    print(f"    城市代码  {adcode if adcode else '未配置，使用固件默认值'}")
     return 0
 
 
