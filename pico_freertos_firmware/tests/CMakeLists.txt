@@ -59,8 +59,20 @@ add_executable(test_asset_store
     ../src/assets/asset_store.c
 )
 
+# ------------------------------------- lead: 协议一致性（跨语言）
+add_executable(test_protocol_conformance
+    test_protocol_conformance.c
+    ../src/network/metrics_parser.c
+)
+target_link_libraries(test_protocol_conformance cjson_lib)
+# 生成的数据集里中文字面量与超长 JSON 行不参与风格闸门。
+target_include_directories(test_protocol_conformance PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
 # ============================================================
 # 后续任务的测试目标请追加到本行之前，并在下面补 add_test。
 # ============================================================
 
 add_test(NAME asset_store    COMMAND test_asset_store)
+add_test(NAME protocol_conformance COMMAND test_protocol_conformance)

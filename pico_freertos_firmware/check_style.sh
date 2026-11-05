@@ -31,9 +31,10 @@ readonly PYTHON
 # 列出待检查的源文件（仓库相对路径，排序后输出）。
 collect_sources() {
   find "${REL_FIRMWARE}" \
-    -type d \( -name 'build*' -o -path '*/tests/cjson' \) -prune -o \
+    -type d \( -name 'build*' -o -path '*/tests/cjson' -o -path '*/tests/generated' \) -prune -o \
     -type f \( -name '*.c' -o -name '*.h' \) \
     ! -path "${REL_FIRMWARE}/include/FreeRTOSConfig.h" \
+    ! -path "${REL_FIRMWARE}/include/firmware_secrets.h" \
     -print |
     sort
 }

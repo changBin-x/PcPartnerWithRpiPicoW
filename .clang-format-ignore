@@ -2,3 +2,4 @@
 pico_freertos_firmware/tests/cjson/.*
 pico_freertos_firmware/include/FreeRTOSConfig.h
 .*/build.*/.*
+pico_freertos_firmware/tests/generated/.*
