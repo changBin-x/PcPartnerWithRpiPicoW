@@ -141,6 +141,10 @@ class MetricsCollector:
         now = self._monotonic()
         if now < self._gpu_retry_after:
             return None
+        if self._gpu_failures >= GPU_FAILURE_THRESHOLD:
+            # Cooldown just elapsed: sit one failure below the threshold so a
+            # single new failure re-enters cooldown instead of accumulating.
+            self._gpu_failures = GPU_FAILURE_THRESHOLD - 1
         try:
             result = subprocess.run(
                 [

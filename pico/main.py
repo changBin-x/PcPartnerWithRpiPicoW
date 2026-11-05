@@ -16,9 +16,9 @@ def _render_error(error, screen=None):
 
             screen = ST7735()
         screen.fill(BG)
-        screen.text("APP ERROR", 4, 30, AMBER)
-        screen.text(error_name[:14], 4, 58, MUTED)
-        screen.text("RESTARTING", 4, 86, MUTED)
+        screen.text(4, 30, "APP ERROR", AMBER)
+        screen.text(4, 58, error_name[:14], MUTED)
+        screen.text(4, 86, "RESTARTING", MUTED)
     except Exception:
         # Printing only the type name keeps secrets out of the serial log.
         print("Pico dashboard error: %s" % error_name)
@@ -78,9 +78,6 @@ def main(
         import machine as machine_module
     _report_reset_cause(machine_module)
 
-    if app_runner is None:
-        from pico.app import run as app_runner
-
     if screen_factory is None:
         try:
             from pico.st7735 import ST7735 as screen_factory
@@ -104,6 +101,13 @@ def main(
         watchdog = None
 
     try:
+        if app_runner is None:
+            # Import inside the guarded block so a partial deploy still shows
+            # the error page instead of dying with a bare REPL traceback.
+            try:
+                from pico.app import run as app_runner
+            except ImportError:
+                from app import run as app_runner
         app_runner(screen=screen, watchdog=watchdog)
         raise RuntimeError("application returned unexpectedly")
     except KeyboardInterrupt:

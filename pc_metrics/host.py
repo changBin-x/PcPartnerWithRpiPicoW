@@ -403,21 +403,36 @@ def run(
                     )
                     sequence += 1
                 deadline = _next_deadline(deadline, interval, now())
-            except (ValueError, OSError, psutil.Error) as exc:
+            except (ValueError, KeyError, TypeError, OSError, psutil.Error) as exc:
+                rebuild_needed = isinstance(
+                    exc, (OSError, psutil.Error, InterfaceNotFoundError)
+                )
+                if not rebuild_needed:
+                    # Deterministic payload/validation errors: the same sampler
+                    # will keep failing, so retry next tick without growing the
+                    # backoff or rebuilding the socket.
+                    reason = f"数据无效：{str(exc) or exc.__class__.__name__}"
+                    if reporter.should_report(reason):
+                        print(
+                            f"{reason}；{interval:g} 秒后重试。",
+                            file=sys.stderr,
+                        )
+                    wait(interval)
+                    deadline = now()
+                    continue
                 failures += 1
                 reason = str(exc) or exc.__class__.__name__
-                if isinstance(exc, (OSError, psutil.Error, InterfaceNotFoundError)):
-                    try:
-                        (
-                            local_address,
-                            broadcast_address,
-                            replacement,
-                        ) = _rebuild_endpoint(resolve, make_socket)
-                    except (RuntimeError, OSError, psutil.Error) as recovery_exc:
-                        reason = f"{reason}；重新解析网卡失败：{recovery_exc}"
-                    else:
-                        udp_socket.close()
-                        udp_socket = replacement
+                try:
+                    (
+                        local_address,
+                        broadcast_address,
+                        replacement,
+                    ) = _rebuild_endpoint(resolve, make_socket)
+                except (RuntimeError, OSError, psutil.Error) as recovery_exc:
+                    reason = f"{reason}；重新解析网卡失败：{recovery_exc}"
+                else:
+                    udp_socket.close()
+                    udp_socket = replacement
                 delay = _backoff_delay(failures)
                 if reporter.should_report(reason):
                     print(
@@ -430,9 +445,12 @@ def run(
 
             failures = 0
             reporter.reset()
-            if collector.gpu_unavailable and not gpu_warning_printed:
-                print("GPU 指标不可用，已降低 nvidia-smi 查询频率。")
-                gpu_warning_printed = True
+            if collector.gpu_unavailable:
+                if not gpu_warning_printed:
+                    print("GPU 指标不可用，已降低 nvidia-smi 查询频率。")
+                    gpu_warning_printed = True
+            else:
+                gpu_warning_printed = False
             if sample is None:
                 drops += 1
                 if drops == DROP_WARNING_THRESHOLD and not drop_warning_printed:

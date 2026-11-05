@@ -244,4 +244,7 @@ def run(
             ticks.sleep_ms(100)
     finally:
         if receiver is not None:
-            receiver.close()
+            try:
+                receiver.close()
+            except OSError:
+                pass

@@ -32,12 +32,16 @@ class FakeScreen:
     def __init__(self):
         self.fills = []
         self.texts = []
+        self.positions = []
 
     def fill(self, color):
         self.fills.append(color)
 
-    def text(self, text, x, y, color):
-        self.texts.append((text, x, y, color))
+    def text(self, x, y, value, color):
+        # Mirrors pico.st7735.text(x, y, value, color) so an argument-order
+        # regression in _render_error fails here instead of on the device.
+        self.texts.append(value)
+        self.positions.append((x, y))
 
 
 class MainTests(unittest.TestCase):
@@ -89,9 +93,10 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(len(screen.fills), 1)
         self.assertEqual(
-            [entry[0] for entry in screen.texts],
+            screen.texts,
             ["APP ERROR", "RuntimeError", "RESTARTING"],
         )
+        self.assertEqual(screen.positions, [(4, 30), (4, 58), (4, 86)])
 
     def test_screen_failure_does_not_prevent_the_error_page(self):
         def fail(screen=None, watchdog=None):

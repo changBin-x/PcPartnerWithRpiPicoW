@@ -160,6 +160,32 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(run.call_count, 4)
 
     @patch("pc_metrics.collectors.subprocess.run")
+    def test_gpu_failure_right_after_cooldown_reenters_cooldown(self, run):
+        clock = FakeClock(0.0)
+        collector = MetricsCollector("Ethernet", monotonic=clock)
+        run.side_effect = OSError("nvidia-smi missing")
+
+        for _ in range(3):
+            self.assertIsNone(collector._gpu_percent())
+            clock.value += 1.0
+        self.assertTrue(collector.gpu_unavailable)
+        self.assertEqual(run.call_count, 3)
+
+        # Cooldown elapsed at 12 s: one probe is allowed, and failing it puts
+        # the collector straight back into the next cooldown window.
+        clock.value = 12.0
+        self.assertIsNone(collector._gpu_percent())
+        self.assertEqual(run.call_count, 4)
+
+        clock.value = 15.0
+        self.assertIsNone(collector._gpu_percent())
+        self.assertEqual(run.call_count, 4)
+
+        clock.value = 22.0
+        self.assertIsNone(collector._gpu_percent())
+        self.assertEqual(run.call_count, 5)
+
+    @patch("pc_metrics.collectors.subprocess.run")
     def test_gpu_success_resets_unavailable_state(self, run):
         clock = FakeClock(0.0)
         collector = MetricsCollector("Ethernet", monotonic=clock)

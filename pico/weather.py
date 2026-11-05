@@ -209,8 +209,14 @@ def _read_all_response(sock, timeout_seconds=None):
     deadline = (_now_ms() + int(timeout_seconds * 1000)) % _TICKS_PERIOD
     response = bytearray()
     while len(response) < AMAP_MAX_RESPONSE_BYTES:
-        if _ticks_diff(_now_ms(), deadline) >= 0:
+        remaining_ms = -_ticks_diff(_now_ms(), deadline)
+        if remaining_ms <= 0:
             raise OSError("HTTP 响应读取超时")
+        # Keep a single slow read from outliving the overall budget. Some
+        # MicroPython TLS builds expose no settimeout(), so degrade quietly.
+        set_timeout = getattr(sock, "settimeout", None)
+        if set_timeout is not None:
+            set_timeout(max(0.1, remaining_ms / 1000))
         remaining = AMAP_MAX_RESPONSE_BYTES - len(response)
         chunk = sock.read(min(256, remaining))
         if not chunk:

@@ -209,6 +209,34 @@ class HostRunTests(unittest.TestCase):
         self.assertIn("未找到有线网卡", outcome.stderr)
         self.assertEqual(outcome.sleeps[0], 1.0)
 
+    def test_payload_error_retries_on_the_interval_without_rebuilding(self):
+        fake_socket = FakeSocket()
+        outcome = self.run_loop(
+            collector=FakeCollector([dict(SAMPLE, cpu=200), SAMPLE]),
+            sockets=[fake_socket],
+            stop_after=2,
+        )
+
+        # A deterministic encoding error must not grow the backoff or swap the
+        # socket: it waits one sampling interval and tries again.
+        self.assertEqual(outcome.sleeps[0], 1.0)
+        self.assertEqual(len(outcome.created), 1)
+        self.assertEqual(len(fake_socket.sent), 1)
+        self.assertIn("数据无效", outcome.stderr)
+        packet, _destination = fake_socket.sent[0]
+        self.assertEqual(decode_packet(packet)["seq"], 0)
+
+    def test_malformed_sample_is_reported_without_killing_the_loop(self):
+        fake_socket = FakeSocket()
+        outcome = self.run_loop(
+            collector=FakeCollector([{"ram": 1.0}, SAMPLE]),
+            sockets=[fake_socket],
+            stop_after=2,
+        )
+
+        self.assertIn("数据无效", outcome.stderr)
+        self.assertEqual(len(fake_socket.sent), 1)
+
     def test_send_failure_does_not_increment_sequence(self):
         first = FakeSocket(send_failures=1)
         second = FakeSocket()

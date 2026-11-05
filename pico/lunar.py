@@ -542,20 +542,27 @@ class HkoLunarService:
         return True
 
     def _worker(self, generation, date_value, current_year):
+        api_text = None
+        success = False
         try:
-            api_text = self._fetcher(date_value, current_year)
-            success = isinstance(api_text, str) and bool(api_text)
-        except Exception as error:
-            # Only the type name is printed: messages can carry URLs/payloads.
-            self.api_error = type(error).__name__
-            print("HKO err %s" % self.api_error)
-            api_text = None
-            success = False
-
-        self._lock.acquire()
-        self._worker_result = (generation, success, api_text)
-        self._task_running = False
-        self._lock.release()
+            try:
+                api_text = self._fetcher(date_value, current_year)
+                success = isinstance(api_text, str) and bool(api_text)
+            except Exception as error:
+                # Only the type name is printed: messages can carry URLs/payloads.
+                self.api_error = type(error).__name__
+                print("HKO err %s" % self.api_error)
+                api_text = None
+                success = False
+        finally:
+            # Always release the slot, even on BaseException, so poll() can
+            # never stay busy forever after one bad worker run.
+            self._lock.acquire()
+            try:
+                self._worker_result = (generation, success, api_text)
+                self._task_running = False
+            finally:
+                self._lock.release()
 
     def _take_worker_result(self):
         if self._lock is None:
