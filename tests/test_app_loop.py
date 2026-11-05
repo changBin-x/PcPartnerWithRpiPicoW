@@ -143,6 +143,7 @@ class FakeLunar:
     def __init__(self):
         self.dates = []
         self.polls = []
+        self.busy = False
 
     @property
     def display_text(self):
@@ -163,8 +164,17 @@ class FakeWeather:
         self.busy = False
         self._snapshot = {"has_data": False, "status": "天气获取中"}
 
-    def poll(self, now_ms, wifi_connected, wifi_changed=False, clock_ready=True):
-        self.polls.append((now_ms, wifi_connected, wifi_changed, clock_ready))
+    def poll(
+        self,
+        now_ms,
+        wifi_connected,
+        wifi_changed=False,
+        clock_ready=True,
+        peer_busy=False,
+    ):
+        self.polls.append(
+            (now_ms, wifi_connected, wifi_changed, clock_ready, peer_busy)
+        )
         return self._snapshot
 
     def snapshot(self):
@@ -293,6 +303,22 @@ class LoopTests(unittest.TestCase):
                 self.assertIsNone(year)
         self.assertFalse(lunar.polls[0][3])
         self.assertTrue(lunar.polls[-1][3])
+
+    def test_weather_yields_to_a_busy_lunar_worker(self):
+        lunar = FakeLunar()
+        lunar.busy = True
+        weather = FakeWeather()
+
+        _, _, _, _, _, _ = self._run(
+            6,
+            wifi=FakeWifi([(True, False)]),
+            lunar=lunar,
+            weather=weather,
+        )
+
+        self.assertTrue(weather.polls)
+        for poll in weather.polls:
+            self.assertTrue(poll[4])
 
     def test_weather_waits_for_a_plausible_clock(self):
         weather = FakeWeather()

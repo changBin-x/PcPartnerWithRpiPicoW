@@ -177,6 +177,7 @@ def run(
                 wifi_connected,
                 wifi_changed=wifi_changed,
                 clock_ready=clock_ready,
+                peer_busy=getattr(lunar, "busy", False),
             )
 
             if receiver is not None:

@@ -127,6 +127,33 @@ class MainTests(unittest.TestCase):
         self.assertEqual(seen["watchdog"].timeout, WATCHDOG_TIMEOUT_MS)
         self.assertEqual(machine.reset_count, 1)
 
+    def test_watchdog_timeout_stays_within_the_rp2_limit(self):
+        # ports/rp2/machine_wdt.c raises above 8388 ms, which would silently
+        # disable the watchdog instead of protecting the loop.
+        self.assertLessEqual(WATCHDOG_TIMEOUT_MS, 8388)
+
+    def test_wdt_value_error_is_reported_and_tolerated(self):
+        class LimitedMachine(FakeMachine):
+            def WDT(self, timeout=None):  # noqa: N802 - mirrors MicroPython
+                raise ValueError("timeout exceeds 8388")
+
+        machine = LimitedMachine()
+        seen = []
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            main(
+                app_runner=lambda screen=None, watchdog=None: seen.append(watchdog),
+                machine_module=machine,
+                sleep_ms=lambda delay: None,
+                error_renderer=lambda error, screen: None,
+                screen_factory=lambda: FakeScreen(),
+            )
+
+        self.assertEqual(seen, [None])
+        self.assertIn("Pico WDT error: ValueError", stdout.getvalue())
+        self.assertEqual(machine.reset_count, 1)
+
     def test_missing_watchdog_class_degrades_to_none(self):
         seen = {}
 

@@ -78,8 +78,12 @@ class UdpReceiver:
             import socket
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setblocking(False)
-            sock.bind(("0.0.0.0", port))
+            try:
+                sock.setblocking(False)
+                sock.bind(("0.0.0.0", port))
+            except OSError:
+                sock.close()
+                raise
         self._socket = sock
 
     def poll(self):

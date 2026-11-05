@@ -559,11 +559,20 @@ class AmapWeatherService:
         else:
             self._schedule_failure(now_ms)
 
-    def poll(self, now_ms, wifi_connected, wifi_changed=False, clock_ready=True):
+    def poll(
+        self,
+        now_ms,
+        wifi_connected,
+        wifi_changed=False,
+        clock_ready=True,
+        peer_busy=False,
+    ):
         """Advance state and start at most one background request; never block on I/O.
 
         clock_ready only guards TLS: certificate validation needs a plausible
         wall clock, so requests wait for NTP (or a still-valid RTC) first.
+        peer_busy lets the caller yield the single TLS worker slot to another
+        background service without spawning a second handshake.
         """
         if not self.configured:
             self._status_text = _WEATHER_STATUS_UNCONFIGURED
@@ -598,6 +607,9 @@ class AmapWeatherService:
         if not clock_ready:
             if self._last_weather is None:
                 self._status_text = _WEATHER_STATUS_FETCHING
+            return self.snapshot()
+
+        if peer_busy:
             return self.snapshot()
 
         if (

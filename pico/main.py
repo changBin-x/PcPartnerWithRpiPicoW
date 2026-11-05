@@ -1,7 +1,8 @@
 """Entry point that turns application crashes into a visible error page."""
 
 RESTART_DELAY_MS = 2000
-WATCHDOG_TIMEOUT_MS = 10000
+# ports/rp2/machine_wdt.c rejects timeouts above 8388 ms.
+WATCHDOG_TIMEOUT_MS = 8000
 
 
 def _render_error(error, screen=None):
@@ -28,16 +29,26 @@ def _make_watchdog(machine_module):
     wdt_class = getattr(machine_module, "WDT", None)
     if wdt_class is None:
         return None
+
+    def _fail(error):
+        print("Pico WDT error: %s" % type(error).__name__)
+        return None
+
     try:
         return wdt_class(timeout=WATCHDOG_TIMEOUT_MS)
     except TypeError:
         # Some ports accept the id positionally instead of as a keyword.
         try:
             return wdt_class(0, WATCHDOG_TIMEOUT_MS)
-        except Exception:
+        except AttributeError:
             return None
-    except Exception:
+        except Exception as error:
+            return _fail(error)
+    except AttributeError:
+        # Ports without a usable WDT simply run unprotected.
         return None
+    except Exception as error:
+        return _fail(error)
 
 
 def _report_reset_cause(machine_module):
