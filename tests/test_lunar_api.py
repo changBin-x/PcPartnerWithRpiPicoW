@@ -1,6 +1,8 @@
 """Tests for parsing the HKO API's traditional-Chinese date fields."""
 
+import threading
 import unittest
+
 
 from pico.lunar import (
     HkoLunarService,
@@ -8,6 +10,31 @@ from pico.lunar import (
     is_hko_api_year_supported,
     parse_hko_api_payload,
 )
+
+
+class InlineThread:
+    """Runs the worker immediately so the network result is deterministic."""
+
+    def allocate_lock(self):
+        return threading.Lock()
+
+    def start_new_thread(self, function, args):
+        function(*args)
+
+
+class DeferredThread(InlineThread):
+    """Records workers instead of running them, exposing the loop-side code."""
+
+    def __init__(self):
+        self.jobs = []
+
+    def start_new_thread(self, function, args):
+        self.jobs.append((function, args))
+
+    def run_all(self):
+        jobs, self.jobs = self.jobs, []
+        for function, args in jobs:
+            function(*args)
 
 
 class HkoApiParsingTests(unittest.TestCase):
@@ -54,50 +81,169 @@ class HkoApiParsingTests(unittest.TestCase):
             fetch_hko_lunar_date((2026, 2, 30), 2026, ca_path="missing-ca.pem")
 
     def test_online_validation_never_overrides_valid_local_table(self):
-        service = HkoLunarService(fetcher=lambda _date, _year: "乙巳年闰六月初一")
+        service = HkoLunarService(
+            fetcher=lambda _date, _year: "乙巳年闰六月初一",
+            thread_module=InlineThread(),
+        )
         service.set_date((2026, 10, 31), now_ms=100)
         local_text = service.display_text
 
         self.assertEqual(local_text, "丙午年九月廿二")
         self.assertTrue(
-            service.refresh_api_if_due(
+            service.poll(
                 100,
                 current_year=2026,
                 wifi_connected=True,
-                time_synced=True,
+                clock_ready=True,
             )
         )
+        self.assertTrue(service.api_verified)
         self.assertTrue(service.api_mismatch)
         self.assertEqual(service.display_text, local_text)
 
-    def test_api_failure_keeps_local_result(self):
+    def test_api_failure_keeps_local_result_and_backs_off(self):
+        calls = []
+
         def fail(_date, _year):
+            calls.append(1)
             raise OSError("network unavailable")
 
-        service = HkoLunarService(fetcher=fail)
+        service = HkoLunarService(fetcher=fail, thread_module=InlineThread())
         service.set_date((2026, 10, 31), now_ms=100)
 
-        self.assertFalse(
-            service.refresh_api_if_due(
+        self.assertTrue(
+            service.poll(
                 100,
                 current_year=2026,
                 wifi_connected=True,
-                time_synced=True,
+                clock_ready=True,
             )
         )
+        # The retry result is applied on the next poll, after the backoff.
+        self.assertEqual(service.display_text, "丙午年九月廿二")
+        self.assertFalse(
+            service.poll(
+                120,
+                current_year=2026,
+                wifi_connected=True,
+                clock_ready=True,
+            )
+        )
+        self.assertFalse(service.api_verified)
+        self.assertEqual(calls, [1])
+        self.assertFalse(
+            service.poll(
+                100 + 60_000 - 1,
+                current_year=2026,
+                wifi_connected=True,
+                clock_ready=True,
+            )
+        )
+        self.assertEqual(calls, [1])
+
+    def test_api_failure_retries_after_backoff(self):
+        calls = []
+
+        def fail(_date, _year):
+            calls.append(1)
+            raise OSError("network unavailable")
+
+        service = HkoLunarService(fetcher=fail, thread_module=InlineThread())
+        service.set_date((2026, 10, 31), now_ms=0)
+        service.poll(0, current_year=2026, wifi_connected=True, clock_ready=True)
+        service.poll(10, current_year=2026, wifi_connected=True, clock_ready=True)
+        self.assertEqual(calls, [1])
+
+        self.assertTrue(
+            service.poll(
+                60_000,
+                current_year=2026,
+                wifi_connected=True,
+                clock_ready=True,
+            )
+        )
+        self.assertEqual(len(calls), 2)
+
+    def test_poll_never_blocks_the_display_loop(self):
+        thread = DeferredThread()
+        service = HkoLunarService(fetcher=lambda _d, _y: "丙午年九月廿二", thread_module=thread)
+        service.set_date((2026, 10, 31), now_ms=0)
+
+        self.assertTrue(
+            service.poll(0, current_year=2026, wifi_connected=True, clock_ready=True)
+        )
+        self.assertTrue(service.busy)
+        self.assertFalse(service.api_verified)
+        self.assertEqual(service.display_text, "丙午年九月廿二")
+        self.assertEqual(len(thread.jobs), 1)
+
+        thread.run_all()
+        service.poll(100, current_year=2026, wifi_connected=True, clock_ready=True)
+        self.assertFalse(service.busy)
+        self.assertTrue(service.api_verified)
+
+    def test_clock_not_ready_or_offline_skips_api(self):
+        calls = []
+        service = HkoLunarService(
+            fetcher=lambda *args: calls.append(args),
+            thread_module=InlineThread(),
+        )
+        service.set_date((2026, 10, 31), now_ms=0)
+
+        self.assertFalse(
+            service.poll(0, current_year=2026, wifi_connected=True, clock_ready=False)
+        )
+        self.assertFalse(
+            service.poll(0, current_year=2026, wifi_connected=False, clock_ready=True)
+        )
+        self.assertEqual(calls, [])
+
+    def test_shared_tls_slot_defers_to_busy_peer(self):
+        calls = []
+        service = HkoLunarService(
+            fetcher=lambda *args: calls.append(args),
+            thread_module=InlineThread(),
+        )
+        service.set_date((2026, 10, 31), now_ms=0)
+
+        self.assertFalse(
+            service.poll(
+                0,
+                current_year=2026,
+                wifi_connected=True,
+                clock_ready=True,
+                peer_busy=True,
+            )
+        )
+        self.assertEqual(calls, [])
+
+    def test_missing_thread_module_degrades_without_crashing(self):
+        service = HkoLunarService(
+            fetcher=lambda *args: None,
+            thread_module=False,
+        )
+        service.set_date((2026, 10, 31), now_ms=0)
+
+        self.assertFalse(
+            service.poll(0, current_year=2026, wifi_connected=True, clock_ready=True)
+        )
+        self.assertEqual(service.api_error, "NoThread")
         self.assertEqual(service.display_text, "丙午年九月廿二")
 
     def test_unsupported_year_skips_api_fallback(self):
         calls = []
-        service = HkoLunarService(fetcher=lambda *args: calls.append(args))
+        service = HkoLunarService(
+            fetcher=lambda *args: calls.append(args),
+            thread_module=InlineThread(),
+        )
         service.set_date((1901, 1, 1), now_ms=0)
 
         self.assertFalse(
-            service.refresh_api_if_due(
+            service.poll(
                 0,
                 current_year=2026,
                 wifi_connected=True,
-                time_synced=True,
+                clock_ready=True,
             )
         )
         self.assertEqual(calls, [])

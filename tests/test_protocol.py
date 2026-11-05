@@ -77,7 +77,7 @@ class ProtocolTests(unittest.TestCase):
     def test_rejects_duplicate_json_keys(self):
         packet = (b'{"v":1,"seq":0,"ts":1,"cpu":0,"gpu":null,'
                   b'"ram":0,"rx":0,"tx":0,"seq":0}')
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "重复字段.*seq"):
             decode_packet(packet)
 
     def test_rejects_invalid_utf8(self):

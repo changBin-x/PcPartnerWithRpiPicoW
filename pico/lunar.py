@@ -1,5 +1,15 @@
 """Compact Hong Kong Observatory lunar-date lookup for MicroPython."""
 
+try:
+    import ujson as json
+except ImportError:
+    import json
+
+try:
+    import _thread
+except ImportError:
+    _thread = None
+
 _MAGIC = b"HKL1"
 _HEADER_SIZE = 10
 _RECORD_SIZE = 3
@@ -415,10 +425,25 @@ def fetch_hko_lunar_date(date_value, current_year, ca_path=None):
 
 
 class HkoLunarService:
-    """Cache local lunar output and rate-limit optional HKO API validation."""
+    """Cache local lunar output and rate-limit the optional HKO API check.
 
-    def __init__(self, fetcher=None):
+    The network check always runs in a worker thread, so the display loop never
+    blocks on DNS or TLS. Results are applied only while the generation still
+    matches; every failure keeps the local table result on screen.
+    """
+
+    def __init__(self, fetcher=None, thread_module=None):
         self._fetcher = fetcher or fetch_hko_lunar_date
+        self._thread = thread_module if thread_module is not None else _thread
+        self._lock = None
+        if self._thread is not None:
+            try:
+                self._lock = self._thread.allocate_lock()
+            except Exception:
+                self._thread = None
+        self._task_running = False
+        self._worker_result = None
+        self._generation = 0
         self._date_value = None
         self._local_text = None
         self._api_text = None
@@ -426,10 +451,20 @@ class HkoLunarService:
         self._api_attempts = 0
         self._next_attempt_ms = None
         self.api_mismatch = False
+        self.api_error = None
+
+    @property
+    def busy(self):
+        """True while the worker thread owns the shared network slot."""
+        return self._task_running
 
     @property
     def display_text(self):
         return self._local_text or self._api_text or "历日暂不可用"
+
+    @property
+    def api_verified(self):
+        return self._api_attempted_successfully
 
     def set_date(self, date_value, now_ms):
         """Load the local table once when the displayed Gregorian date changes."""
@@ -438,6 +473,7 @@ class HkoLunarService:
             parts = None
         if parts == self._date_value:
             return False
+        self._generation += 1
         self._date_value = parts
         self._local_text = None
         self._api_text = None
@@ -445,6 +481,7 @@ class HkoLunarService:
         self._api_attempts = 0
         self._next_attempt_ms = now_ms
         self.api_mismatch = False
+        self.api_error = None
         if parts is not None:
             try:
                 self._local_text = format_lunar_date(parts)
@@ -452,12 +489,14 @@ class HkoLunarService:
                 self._local_text = None
         return True
 
-    def refresh_api_if_due(self, now_ms, current_year, wifi_connected, time_synced):
-        """Attempt a bounded HTTPS lookup, retaining local data on every failure."""
+    def poll(self, now_ms, current_year, wifi_connected, clock_ready, peer_busy=False):
+        """Apply a finished check and start at most one bounded worker; never block."""
+        self._apply_worker_result(now_ms)
+
         if (
             self._date_value is None
             or not wifi_connected
-            or not time_synced
+            or not clock_ready
             or self._api_attempted_successfully
         ):
             return False
@@ -465,19 +504,86 @@ class HkoLunarService:
             return False
         if self._next_attempt_ms is not None and _ticks_diff(now_ms, self._next_attempt_ms) < 0:
             return False
+        # Share the single TLS worker slot with the weather client: two
+        # concurrent handshakes add avoidable heap pressure on RP2040.
+        if self._task_running or peer_busy:
+            return False
+        started = self._start_worker(now_ms, current_year)
+        if started:
+            # Apply at once when an injected executor runs the worker inline.
+            self._apply_worker_result(now_ms)
+        return started
 
-        try:
-            api_text = self._fetcher(self._date_value, current_year)
-        except Exception:
-            delay_index = min(self._api_attempts, len(_HKO_API_RETRY_MS) - 1)
-            self._api_attempts += 1
-            self._next_attempt_ms = (
-                now_ms + _HKO_API_RETRY_MS[delay_index]
-            ) % _TICKS_PERIOD
+    def _start_worker(self, now_ms, current_year):
+        if self._thread is None or self._lock is None:
+            self.api_error = "NoThread"
+            self._schedule_failure(now_ms)
             return False
 
+        self._lock.acquire()
+        generation = self._generation
+        date_value = self._date_value
+        self._task_running = True
+        self._lock.release()
+
+        try:
+            self._thread.start_new_thread(
+                self._worker,
+                (generation, date_value, current_year),
+            )
+        except Exception as error:
+            self.api_error = type(error).__name__
+            self._lock.acquire()
+            self._task_running = False
+            self._worker_result = None
+            self._lock.release()
+            self._schedule_failure(now_ms)
+            return False
+        return True
+
+    def _worker(self, generation, date_value, current_year):
+        try:
+            api_text = self._fetcher(date_value, current_year)
+            success = isinstance(api_text, str) and bool(api_text)
+        except Exception as error:
+            # Only the type name is printed: messages can carry URLs/payloads.
+            self.api_error = type(error).__name__
+            print("HKO err %s" % self.api_error)
+            api_text = None
+            success = False
+
+        self._lock.acquire()
+        self._worker_result = (generation, success, api_text)
+        self._task_running = False
+        self._lock.release()
+
+    def _take_worker_result(self):
+        if self._lock is None:
+            return None
+        self._lock.acquire()
+        result = self._worker_result
+        self._worker_result = None
+        self._lock.release()
+        return result
+
+    def _apply_worker_result(self, now_ms):
+        result = self._take_worker_result()
+        if result is None:
+            return
+        generation, success, api_text = result
+        if generation != self._generation:
+            return
+        if not success:
+            self._schedule_failure(now_ms)
+            return
         self._api_attempted_successfully = True
         self._api_text = api_text
         if self._local_text is not None:
             self.api_mismatch = self._local_text != api_text
-        return True
+
+    def _schedule_failure(self, now_ms):
+        delay_index = min(self._api_attempts, len(_HKO_API_RETRY_MS) - 1)
+        self._api_attempts += 1
+        self._next_attempt_ms = (
+            now_ms + _HKO_API_RETRY_MS[delay_index]
+        ) % _TICKS_PERIOD

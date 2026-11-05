@@ -1,4 +1,6 @@
+import inspect
 import math
+import time
 import unittest
 from pathlib import Path
 
@@ -9,8 +11,10 @@ from pico.display import (
     ICON_PC,
     ICON_WIFI,
     ICON_WIDTH,
-    LINE_BASELINE,
+    SECONDARY,
     TRACK,
+    _centered_text,
+    _draw_weather_row,
     _text_width,
     draw_clock,
     draw_dashboard,
@@ -28,6 +32,8 @@ from pico.font_cn import (
     FONT_CN_BLOB_BYTES,
     FONT_CN_BYTES_PER_GLYPH,
     FONT_CN_ORDER,
+    LINE_BASELINE,
+    WEATHER_DIGIT_WIDTH,
 )
 from tools.build_font import ASCII_CHARACTERS, CHINESE_CHARACTERS, verify_font_set
 from pico.st7735 import (
@@ -61,12 +67,19 @@ class RecordingCanvas:
     def clock_text(self, x, y, value, color, background=None):
         self.calls.append(("clock", x, y, value, color, background))
 
+    def weather_temperature(self, x, y, value, color, background=None):
+        self.calls.append(("temperature", x, y, value, color, background))
+
     def bitmap(self, x, y, width, height, packed, color, background=None):
         self.calls.append(("bitmap", x, y, width, height, packed, color, background))
 
 
 class RecordingPin:
+    def __init__(self):
+        self.values = []
+
     def value(self, value=None):
+        self.values.append(value)
         return value
 
 
@@ -76,6 +89,33 @@ class RecordingSPI:
 
     def write(self, data):
         self.writes.append(bytes(data))
+
+
+def _decode_commands(spi, dc):
+    """Pair each command byte with the data bytes written while DC was high."""
+    commands = []
+    current = None
+    for payload, direction in zip(spi.writes, dc.values):
+        if direction == 0:
+            current = [payload[0], b""]
+            commands.append(current)
+        elif current is not None:
+            current[1] += payload
+    return [(command, data) for command, data in commands]
+
+
+def _bare_screen(colstart=0, rowstart=0, invert=False):
+    screen = ST7735.__new__(ST7735)
+    screen.width = 128
+    screen.height = 160
+    screen.spi = RecordingSPI()
+    screen.cs = RecordingPin()
+    screen.dc = RecordingPin()
+    screen.rst = RecordingPin()
+    screen.colstart = colstart
+    screen.rowstart = rowstart
+    screen.invert = invert
+    return screen
 
 
 class DisplayTests(unittest.TestCase):
@@ -326,6 +366,137 @@ class DisplayTests(unittest.TestCase):
             call[2] + (CLOCK_DIGIT_HEIGHT if call[0] == "clock" else 14) <= canvas.height
             for call in canvas.calls if call[0] in ("text", "clock")
         ))
+
+    def test_driver_draw_ascii_uses_font_height_constant(self):
+        screen = _bare_screen()
+        windows = []
+        screen._set_window = lambda x, y, width, height: windows.append(
+            (x, y, width, height)
+        )
+        self.assertEqual(screen._draw_ascii(0, 0, "A", 0xFFFF, 0x0000), ASCII_WIDTH)
+        self.assertEqual(windows, [(0, 0, ASCII_WIDTH, ASCII_HEIGHT)])
+        self.assertEqual(len(screen.spi.writes), 1)
+        self.assertEqual(len(screen.spi.writes[0]), ASCII_WIDTH * ASCII_HEIGHT * 2)
+
+    def test_centered_text_clips_overlong_text_instead_of_raising(self):
+        canvas = RecordingCanvas()
+        value = "2026年10月31日星期六丙午年九月廿二"
+        _centered_text(canvas, 77, value, SECONDARY)
+        calls = [call for call in canvas.calls if call[0] == "text"]
+        self.assertEqual(len(calls), 1)
+        _, x, y, text, _, _ = calls[0]
+        width = _text_width(text)
+        self.assertLessEqual(width, canvas.width)
+        self.assertTrue(text.endswith(".."))
+        self.assertTrue(value.startswith(text[:-2]))
+        self.assertEqual(x, (canvas.width - width) // 2)
+        self.assertEqual(y, 77)
+
+    def test_clock_accepts_overlong_date_without_raising(self):
+        canvas = RecordingCanvas()
+        date_text = "2026年10月31日星期六"
+        draw_clock(canvas, "15:28:41", date_text, "星期六", "丙午年九月廿二", True, True)
+        date_calls = [
+            call for call in canvas.calls
+            if call[0] == "text" and call[3].startswith("2026年")
+        ]
+        self.assertEqual(len(date_calls), 1)
+        self.assertTrue(date_calls[0][3].endswith(".."))
+        self.assertLessEqual(
+            date_calls[0][1] + _text_width(date_calls[0][3]), canvas.width
+        )
+
+    def test_weather_row_keeps_condition_visible_for_low_temperatures(self):
+        condition = "多云转晴"
+        for temperature in (26, -10, -20):
+            for is_stale in (False, True):
+                for city in ("杭州", "哈尔滨"):
+                    with self.subTest(
+                        temperature=temperature, is_stale=is_stale, city=city
+                    ):
+                        canvas = RecordingCanvas()
+                        state = {
+                            "has_data": True,
+                            "city": city,
+                            "condition": condition,
+                            "temperature": temperature,
+                            "is_stale": is_stale,
+                            "status": "",
+                        }
+                        _draw_weather_row(canvas, 15, state, panel=True)
+                        condition_calls = [
+                            call for call in canvas.calls
+                            if call[0] == "text" and call[4] == SECONDARY
+                        ]
+                        self.assertEqual(len(condition_calls), 1)
+                        _, condition_x, _, condition_text, _, _ = condition_calls[0]
+                        self.assertTrue(condition_text)
+                        self.assertNotEqual(condition_text, "..")
+                        self.assertTrue(condition.startswith(condition_text))
+                        condition_width = _text_width(condition_text)
+                        self.assertGreaterEqual(condition_width, CHINESE_WIDTH)
+                        temperature_width = (
+                            len(str(temperature)) * WEATHER_DIGIT_WIDTH
+                            + CHINESE_WIDTH
+                        )
+                        temperature_x = 4 + 120 - 4 - temperature_width
+                        self.assertGreaterEqual(condition_x, 8)
+                        self.assertLessEqual(
+                            condition_x + condition_width, temperature_x - 6
+                        )
+
+
+class PanelConfigurationTests(unittest.TestCase):
+    def test_driver_constructor_keeps_zero_offsets_and_no_inversion(self):
+        parameters = inspect.signature(ST7735.__init__).parameters
+        self.assertEqual(parameters["colstart"].default, 0)
+        self.assertEqual(parameters["rowstart"].default, 0)
+        self.assertEqual(parameters["invert"].default, False)
+
+    def test_window_commands_match_previous_behaviour_by_default(self):
+        screen = _bare_screen()
+        screen._set_window(3, 5, 10, 7)
+        self.assertEqual(
+            _decode_commands(screen.spi, screen.dc),
+            [
+                (0x2A, b"\x00\x03\x00\x0c"),
+                (0x2B, b"\x00\x05\x00\x0b"),
+                (0x2C, b""),
+            ],
+        )
+
+    def test_window_commands_apply_panel_offsets(self):
+        screen = _bare_screen(colstart=2, rowstart=1)
+        screen._set_window(3, 5, 10, 7)
+        self.assertEqual(
+            _decode_commands(screen.spi, screen.dc),
+            [
+                (0x2A, b"\x00\x05\x00\x0e"),
+                (0x2B, b"\x00\x06\x00\x0c"),
+                (0x2C, b""),
+            ],
+        )
+
+    def test_panel_init_sends_invon_only_when_inversion_requested(self):
+        for invert in (False, True):
+            with self.subTest(invert=invert):
+                screen = _bare_screen(invert=invert)
+                had_sleep_ms = hasattr(time, "sleep_ms")
+                original_sleep_ms = getattr(time, "sleep_ms", None)
+                time.sleep_ms = lambda milliseconds: None
+                try:
+                    screen._init_panel()
+                finally:
+                    if had_sleep_ms:
+                        time.sleep_ms = original_sleep_ms
+                    else:
+                        del time.sleep_ms
+                commands = _decode_commands(screen.spi, screen.dc)
+                command_ids = [command for command, _ in commands]
+                self.assertIn(0x21 if invert else 0x20, command_ids)
+                self.assertNotIn(0x20 if invert else 0x21, command_ids)
+                madctl = [data for command, data in commands if command == 0x36]
+                self.assertEqual(madctl, [b"\xc8"])
 
 
 def _draw_dashboard_frame(canvas, metrics, previous=None, **changes):

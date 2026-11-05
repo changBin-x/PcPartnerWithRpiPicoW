@@ -29,6 +29,8 @@ try:
 except ImportError:
     _thread = None
 
+import time
+
 
 def _ticks_diff(ticks1, ticks2):
     half_period = _TICKS_PERIOD // 2
@@ -192,9 +194,23 @@ def _parse_http_response(response):
     return body
 
 
-def _read_all_response(sock):
+def _now_ms():
+    """MicroPython ticks when available, CPython monotonic fallback for tests."""
+    ticks_ms = getattr(time, "ticks_ms", None)
+    if ticks_ms is not None:
+        return ticks_ms()
+    return int(time.monotonic() * 1000) % _TICKS_PERIOD
+
+
+def _read_all_response(sock, timeout_seconds=None):
+    if timeout_seconds is None:
+        timeout_seconds = AMAP_API_TIMEOUT_SECONDS
+    # Slow-drip responses could otherwise hold the worker thread for minutes.
+    deadline = (_now_ms() + int(timeout_seconds * 1000)) % _TICKS_PERIOD
     response = bytearray()
     while len(response) < AMAP_MAX_RESPONSE_BYTES:
+        if _ticks_diff(_now_ms(), deadline) >= 0:
+            raise OSError("HTTP 响应读取超时")
         remaining = AMAP_MAX_RESPONSE_BYTES - len(response)
         chunk = sock.read(min(256, remaining))
         if not chunk:
@@ -373,32 +389,45 @@ class AmapWeatherService:
                 self._lock = self._thread.allocate_lock()
             except Exception:
                 self._thread = None
+        # Reused so the 100 ms loop does not allocate a dict every tick.
+        self._snapshot = {
+            "configured": self.configured,
+            "has_data": False,
+            "city": "",
+            "weather": "",
+            "temperature": None,
+            "is_stale": False,
+            "status": self._status_text,
+        }
 
     @property
     def configured(self):
         return is_valid_key(self.key)
 
+    @property
+    def busy(self):
+        """True while the worker thread owns the shared network slot."""
+        return self._task_running
+
     def snapshot(self):
-        if self._last_weather is None:
-            return {
-                "configured": self.configured,
-                "has_data": False,
-                "city": "",
-                "weather": "",
-                "temperature": None,
-                "is_stale": False,
-                "status": self._status_text,
-            }
+        snap = self._snapshot
+        snap["configured"] = self.configured
         value = self._last_weather
-        return {
-            "configured": self.configured,
-            "has_data": True,
-            "city": value["city"],
-            "weather": value["weather"],
-            "temperature": value["temperature"],
-            "is_stale": value["is_stale"],
-            "status": "",
-        }
+        if value is None:
+            snap["has_data"] = False
+            snap["city"] = ""
+            snap["weather"] = ""
+            snap["temperature"] = None
+            snap["is_stale"] = False
+            snap["status"] = self._status_text
+            return snap
+        snap["has_data"] = True
+        snap["city"] = value["city"]
+        snap["weather"] = value["weather"]
+        snap["temperature"] = value["temperature"]
+        snap["is_stale"] = value["is_stale"]
+        snap["status"] = ""
+        return snap
 
     def _schedule_failure(self, now_ms):
         delay_index = min(self._retry_count, len(RETRY_BACKOFF_MS) - 1)
@@ -530,8 +559,12 @@ class AmapWeatherService:
         else:
             self._schedule_failure(now_ms)
 
-    def poll(self, now_ms, wifi_connected, wifi_changed=False, time_synced=True):
-        """Advance state and start at most one background request; never block on I/O."""
+    def poll(self, now_ms, wifi_connected, wifi_changed=False, clock_ready=True):
+        """Advance state and start at most one background request; never block on I/O.
+
+        clock_ready only guards TLS: certificate validation needs a plausible
+        wall clock, so requests wait for NTP (or a still-valid RTC) first.
+        """
         if not self.configured:
             self._status_text = _WEATHER_STATUS_UNCONFIGURED
             return self.snapshot()
@@ -562,7 +595,7 @@ class AmapWeatherService:
                 self._status_text = _WEATHER_STATUS_UNAVAILABLE
             return self.snapshot()
 
-        if not time_synced:
+        if not clock_ready:
             if self._last_weather is None:
                 self._status_text = _WEATHER_STATUS_FETCHING
             return self.snapshot()

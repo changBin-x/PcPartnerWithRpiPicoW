@@ -7,7 +7,6 @@ try:
         ASCII_WIDTH,
         CHINESE_HEIGHT,
         CHINESE_WIDTH,
-        LINE_BASELINE,
         WEATHER_DIGIT_WIDTH,
     )
     from .st7735 import rgb565
@@ -16,7 +15,6 @@ except ImportError:
         ASCII_WIDTH,
         CHINESE_HEIGHT,
         CHINESE_WIDTH,
-        LINE_BASELINE,
         WEATHER_DIGIT_WIDTH,
     )
     from st7735 import rgb565
@@ -141,6 +139,16 @@ def _clip_text(value, max_width):
     return result
 
 
+def _fit_text(value, max_width):
+    """Keep the longest leading run that fits; never append an ellipsis."""
+    result = ""
+    for character in value:
+        if _text_width(result + character) > max_width:
+            break
+        result += character
+    return result
+
+
 def _draw_card_container(canvas, x, y, width, height, color=SURFACE_CONTAINER):
     """Draw an M3 container card with chamfered corners for a soft look."""
     canvas.fill_rect(x + 1, y, width - 2, 1, color)
@@ -217,7 +225,7 @@ def _draw_weather_row(canvas, y, state, panel=False):
     city_x = container_x + 4
     if state["is_stale"]:
         canvas.text(city_x, y, "旧", TERTIARY, bg_color)
-        city_x += 14
+        city_x += CHINESE_WIDTH
 
     city = state["city"]
     for suffix in ("市", "地区", "自治州", "盟"):
@@ -230,11 +238,18 @@ def _draw_weather_row(canvas, y, state, panel=False):
     )
     temperature_x = container_x + container_w - 4 - temperature_width
     left_end = temperature_x - 6
-    city_width = min(42, left_end - city_x)
-    city_text = _clip_text(city, city_width)
+    condition = state["condition"]
+    # Reserve the 4 px gap plus at least one Chinese glyph for the weather
+    # condition before handing out space to the city, so a long city name or a
+    # sub-zero temperature can never clip the condition away entirely.
+    if condition:
+        city_limit = min(42, left_end - CHINESE_WIDTH - 4 - city_x)
+    else:
+        city_limit = min(42, left_end - city_x)
+    city_text = _fit_text(city, city_limit) if city_limit >= CHINESE_WIDTH else ""
     condition_x = city_x + _text_width(city_text) + (4 if city_text else 0)
     condition_width = max(0, left_end - condition_x)
-    condition_text = _clip_text(state["condition"], condition_width)
+    condition_text = _fit_text(condition, condition_width) if condition else ""
 
     if city_text:
         canvas.text(city_x, y, city_text, MUTED, bg_color)
@@ -245,10 +260,9 @@ def _draw_weather_row(canvas, y, state, panel=False):
 
 
 def _centered_text(canvas, y, value, color, background=BG):
-    width = _text_width(value)
-    if width > canvas.width:
-        raise ValueError("文本超出屏幕宽度: %s" % value)
-    canvas.text((canvas.width - width) // 2, y, value, color, background)
+    text = _clip_text(value, canvas.width)
+    width = _text_width(text)
+    canvas.text((canvas.width - width) // 2, y, text, color, background)
 
 
 def _metric_card_state(canvas, y, name, value_text, percent, color):

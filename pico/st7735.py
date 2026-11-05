@@ -3,6 +3,7 @@
 try:
     from .font_cn import (
         ASCII_FONT,
+        ASCII_HEIGHT,
         ASCII_WIDTH,
         CHINESE_HEIGHT,
         CHINESE_WIDTH,
@@ -16,6 +17,7 @@ try:
 except ImportError:
     from font_cn import (
         ASCII_FONT,
+        ASCII_HEIGHT,
         ASCII_WIDTH,
         CHINESE_HEIGHT,
         CHINESE_WIDTH,
@@ -39,6 +41,8 @@ _RASET = 0x2B
 _RAMWR = 0x2C
 _MADCTL = 0x36
 _COLMOD = 0x3A
+_INVOFF = 0x20
+_INVON = 0x21
 
 
 def rgb565(red, green, blue):
@@ -138,11 +142,23 @@ class ST7735:
     width = WIDTH
     height = HEIGHT
 
-    def __init__(self, spi=None, cs=None, dc=None, rst=None):
+    def __init__(
+        self,
+        spi=None,
+        cs=None,
+        dc=None,
+        rst=None,
+        colstart=0,
+        rowstart=0,
+        invert=False,
+    ):
         from machine import Pin, SPI
 
         self.width = WIDTH
         self.height = HEIGHT
+        self.colstart = colstart
+        self.rowstart = rowstart
+        self.invert = bool(invert)
         self.spi = spi or SPI(
             0,
             baudrate=20_000_000,
@@ -192,7 +208,7 @@ class ST7735:
         self._command(0xC3, b"\x8a\x2a")
         self._command(0xC4, b"\x8a\xee")
         self._command(0xC5, b"\x0e")
-        self._command(0x20)
+        self._command(_INVON if self.invert else _INVOFF)
         self._command(_MADCTL, b"\xc8")
         self._command(_COLMOD, b"\x05")
         self._command(0xE0, b"\x02\x1c\x07\x12\x37\x32\x29\x2d\x29\x25\x2b\x39\x00\x01\x03\x10")
@@ -201,6 +217,8 @@ class ST7735:
         time.sleep_ms(100)
 
     def _set_window(self, x, y, width, height):
+        x = x + self.colstart
+        y = y + self.rowstart
         x_end = x + width - 1
         y_end = y + height - 1
         self._command(_CASET, bytes((0, x, 0, x_end)))

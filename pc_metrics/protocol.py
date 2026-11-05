@@ -83,11 +83,19 @@ def encode_packet(
     return data
 
 
+class _DuplicateFieldError(ValueError):
+    """A JSON object repeated one of its field names."""
+
+    def __init__(self, field: str) -> None:
+        super().__init__(field)
+        self.field = field
+
+
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("JSON 包含重复字段")
+            raise _DuplicateFieldError(key)
         result[key] = value
     return result
 
@@ -108,6 +116,10 @@ def decode_packet(data: bytes) -> dict[str, int | float | None]:
         ``ram``, ``rx``, and ``tx``. ``ts`` is a Unix timestamp in seconds;
         ``rx`` and ``tx`` are throughput values in decimal MB/s. GPU may be None.
 
+        Only lower bounds are checked for ``seq``, ``ts``, ``rx``, and ``tx``;
+        no upper bound is imposed on them. The percentage fields ``cpu``,
+        ``gpu``, and ``ram`` additionally have a 0–100 upper bound.
+
     Raises:
         ValueError: If the bytes, JSON, protocol fields, version, or values are invalid.
     """
@@ -121,6 +133,8 @@ def decode_packet(data: bytes) -> dict[str, int | float | None]:
             object_pairs_hook=_unique_object,
             parse_constant=_reject_constant,
         )
+    except _DuplicateFieldError as exc:
+        raise ValueError(f"数据包包含重复字段：{exc.field}") from exc
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
         raise ValueError("数据包不是有效 JSON") from exc
     if not isinstance(payload, dict) or frozenset(payload) != _FIELDS:

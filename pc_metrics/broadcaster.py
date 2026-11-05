@@ -5,6 +5,8 @@ from __future__ import annotations
 import ipaddress
 import socket
 
+from pc_metrics.protocol import MAX_PACKET_BYTES
+
 
 def get_broadcast_address(address: str, netmask: str) -> str:
     """Return the IPv4 directed broadcast for an interface address and mask."""
@@ -37,8 +39,13 @@ def send_packet(
     broadcast_address: str,
     port: int = 8765,
 ) -> int:
-    """Send one UDP datagram to a subnet broadcast without opening a listener."""
+    """Send one UDP datagram to a subnet broadcast without opening a listener.
+
+    ``SO_BROADCAST`` belongs to the socket setup, so callers configure it once
+    when creating the socket instead of on every send.
+    """
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
         raise ValueError("UDP 端口必须在 1–65535 之间")
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    if len(packet) > MAX_PACKET_BYTES:
+        raise ValueError("UDP 数据包超过 512 字节")
     return sock.sendto(packet, (broadcast_address, port))

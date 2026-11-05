@@ -118,6 +118,16 @@ class TimeSynchronizer:
         self.synced = False
         self._next_attempt_ms = None
         self._retry_count = 0
+        # Reused so the 100 ms loop does not allocate a dict every tick.
+        self._snapshot = {
+            "year": None,
+            "date": None,
+            "time_text": None,
+            "short_date": None,
+            "full_date": None,
+            "weekday_short": None,
+            "weekday_full": None,
+        }
 
     def sync_if_due(self, now_ms, wifi_connected, force=False):
         """Attempt NTP after Wi-Fi connect, retry failures, and refresh at 6h."""
@@ -134,6 +144,7 @@ class TimeSynchronizer:
         # The Pico W factory RTC (2021) is too stale to display, but remains a
         # useful era anchor for resolving the NTP seconds rollover in 2036.
         approximate_unix = _ntp_era_hint()
+        last_error = None
         for host in NTP_HOSTS:
             try:
                 unix_seconds = self._query_host(host, approximate_unix)
@@ -151,10 +162,14 @@ class TimeSynchronizer:
                 self._retry_count = 0
                 self._next_attempt_ms = (now_ms + RESYNC_INTERVAL_MS) % _TICKS_PERIOD
                 return True
-            except Exception:
+            except Exception as error:
+                last_error = error
                 continue
 
         self.synced = False
+        if last_error is not None:
+            # Type name only: NTP messages can embed host and IP details.
+            print("NTP err %s" % type(last_error).__name__)
         delay_index = min(self._retry_count, len(_SYNC_RETRY_MS) - 1)
         self._retry_count += 1
         self._next_attempt_ms = (now_ms + _SYNC_RETRY_MS[delay_index]) % _TICKS_PERIOD
@@ -162,24 +177,23 @@ class TimeSynchronizer:
 
     def snapshot(self):
         """Return a display-ready UTC+8 snapshot, or empty fields for bad RTC."""
+        snap = self._snapshot
         if not _has_plausible_rtc():
-            return {
-                "year": None,
-                "date": None,
-                "time_text": None,
-                "short_date": None,
-                "full_date": None,
-                "weekday_short": None,
-                "weekday_full": None,
-            }
+            snap["year"] = None
+            snap["date"] = None
+            snap["time_text"] = None
+            snap["short_date"] = None
+            snap["full_date"] = None
+            snap["weekday_short"] = None
+            snap["weekday_full"] = None
+            return snap
         parts = time.gmtime(time.time() + UTC_OFFSET_SECONDS)
         year, month, day, hour, minute, second, weekday = parts[:7]
-        return {
-            "year": year,
-            "date": (year, month, day),
-            "time_text": "%02d:%02d:%02d" % (hour, minute, second),
-            "short_date": "%02d/%02d" % (month, day),
-            "full_date": "%d年%02d月%02d日" % (year, month, day),
-            "weekday_short": _WEEKDAYS_SHORT[weekday],
-            "weekday_full": _WEEKDAYS_FULL[weekday],
-        }
+        snap["year"] = year
+        snap["date"] = (year, month, day)
+        snap["time_text"] = "%02d:%02d:%02d" % (hour, minute, second)
+        snap["short_date"] = "%02d/%02d" % (month, day)
+        snap["full_date"] = "%d年%02d月%02d日" % (year, month, day)
+        snap["weekday_short"] = _WEEKDAYS_SHORT[weekday]
+        snap["weekday_full"] = _WEEKDAYS_FULL[weekday]
+        return snap

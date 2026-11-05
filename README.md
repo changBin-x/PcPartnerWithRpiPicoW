@@ -20,19 +20,19 @@
 
 这是一个「主机采集 + 单片机显示」的局域网小项目：
 
-- 主机端（`pc_metrics/`）用 Python 与 psutil 采集指标，每秒向所在子网的定向广播地址发送一个不超过 512 字节的 JSON 数据包（UDP 8765）。
+- 主机端（`pc_metrics/`）用 Python 与 psutil 采集指标，稳态约每秒向所在子网的定向广播地址发送一个不超过 512 字节的 JSON 数据包（UDP 8765）。
 - Pico 端（`pico/`）用 MicroPython 接收指标并驱动 TFT 屏幕；没有指标时显示时钟、农历和天气。
 - 主机端不开放任何 TCP/HTTP 端口，也不依赖云服务；数据只在本机所在广播域内传播。
-- 当前版本已在 Pico W + ST7735S 上完成整机部署验证（MicroPython 1.29.0）；`tests/` 下 105 项单元测试通过（Python 3.11.9，2026-11-03）。
+- 当前版本已在 Pico W + ST7735S 上完成整机部署验证（MicroPython 1.29.0，2026-11-03）；`tests/` 下 190 项单元测试通过（Windows + Python 3.11.9，Linux + Python 3.12.3，2026-11-05）。
 
 ## 功能特性
 
 ### 电脑指标仪表盘
 
 - CPU 使用率、系统内存占用率（psutil）。
-- NVIDIA GPU 使用率（`nvidia-smi`）；没有 NVIDIA 驱动或查询超时（0.7 秒）时显示 `--`，不影响其他指标。
+- NVIDIA GPU 使用率（`nvidia-smi -i 0`，仅第一块 GPU）；没有 NVIDIA 驱动或查询超时（0.7 秒为软上限，超时后还需回收进程）时显示 `--`，不影响其他指标；连续 3 次失败后 10 秒内跳过查询，并在终端提示一次。
 - 有线网卡实时收发速率，十进制 MB/s，保留 1 位小数。
-- 每秒采样并广播一次（端口 8765）。
+- 稳态约每秒采样并广播一次（端口 8765）；启动后第一秒用于建立 CPU 与网卡计数基线，不发送数据包。
 - 每个指标一张 Material Design 3 深色切角卡片，配 3 px 细进度条；RAM 超过 90% 时使用警示色。
 - 顶栏显示电脑与 Wi‑Fi 状态图标，以颜色区分激活/非激活状态。
 
@@ -40,7 +40,7 @@
 
 - NTP 校时（`ntp.aliyun.com` 等阿里云 NTP 主机），按 UTC+8 显示；成功后每 6 小时重新校时，失败按 30 秒、1 分钟、5 分钟、15 分钟退避重试。
 - 大号时间（26 px 数字）、公历日期、星期。
-- 中文干支农历：优先使用随固件安装的香港天文台（HKO）1901–2100 年本地逐日表，表内日期无需联网；同时会在绘屏主循环内同步调用 HKO 在线 API 复核（仅限 HKO 文档支持的「当年及后两年」），复核失败不影响本地结果显示，网络异常时可能短暂阻塞刷新（连接超时 2 秒，DNS 解析无代码级超时）。
+- 中文干支农历：优先使用随固件安装的香港天文台（HKO）1901–2100 年本地逐日表，表内日期无需联网；联网后由后台线程复核「当年及后两年」的 HKO 在线结果（连接超时 2 秒、整段响应有总超时），与本地表不一致时仅记录差异，显示仍以本地表为准，复核失败不影响本地结果显示，按 1、5、30、60 分钟退避重试。
 - 时间未同步时显示 `--:--:--` 与「时间同步中」占位，仪表盘则显示 `TIME SYNC`；时钟页不再单独显示 NTP 状态行，同步结果直接体现在时间是否可用。
 
 ### 在线天气
@@ -54,9 +54,11 @@
 
 - 电脑指标停止约 3 秒后自动切换到时钟模式；重新收到指标后立即回到仪表盘。
 - 指标包严格校验（字段集合、数值范围、协议版本、重复/过期序号、JSON 合法性），非法包直接丢弃。
-- 屏幕通常每秒刷新一次，并且只刷新发生变化的区域，避免整屏闪烁。
-- 主循环异常时显示 `APP ERROR` 错误页并在 2 秒后软重启；异常文本不会写入串口（最多输出异常类型名），避免泄露可能包含的密钥。
-- Wi‑Fi 断开后自动重连（重试间隔 1、3、10、30 秒）。
+- 屏幕在时间秒数变化时立即重绘（兜底 1 秒），并且只刷新发生变化的区域，避免整屏闪烁。
+- 主循环异常时显示 `APP ERROR` 错误页并在 2 秒后软重启；错误页复用已初始化的屏幕，不会重复初始化面板。异常文本不会写入串口（最多输出异常类型名），避免泄露可能包含的密钥。
+- 主循环每拍喂一次 10 秒硬件看门狗；绘屏或网络路径卡死超过 10 秒时设备自动复位，串口会打印重启原因 `Pico reset cause: <code>`。
+- Wi‑Fi 断开后自动重连（重试间隔 1、3、10、30 秒）；重连成功后重建 UDP 监听套接字，避免旧 lwIP 套接字失效导致指标中断。
+- 天气请求与农历复核都在后台线程执行，并各自检查对方是否正忙来尽量避免同时握手，减小 RP2040 堆压力。
 
 ## 硬件连接
 
@@ -111,7 +113,7 @@ python -m pip install -r requirements-host.txt
 powershell -ExecutionPolicy Bypass -File tools/start_metrics.ps1
 ```
 
-脚本会检查 `python.exe`、Python 版本与 `psutil`，然后运行 `python -m pc_metrics.host`。启动成功会打印实际使用的网卡地址、广播目标与采样间隔，例如：
+脚本会检查 `python.exe`（会识别 Microsoft Store 的占位程序）、Python ≥ 3.10 与 `psutil` 版本区间 `>=5.9,<8`，然后运行 `python -m pc_metrics.host`。退出码：`0` 正常/Ctrl+C，`1` 环境不满足，`2` 主机采集器启动失败（网卡、地址、端口或采样间隔配置问题，原因打印在 stderr）。启动成功会打印实际使用的网卡地址、广播目标与采样间隔，例如：
 
 ```text
 有线网卡：以太网 (192.168.1.10)；UDP 广播：192.168.1.255:8765；采样间隔：1 秒。按 Ctrl+C 停止。
@@ -163,13 +165,13 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 
 部署脚本会：
 
-1. 检查 `pico/wifi_secrets.py` 与 `pico/weather_secrets.py` 是否存在；
+1. 检查 `pico/wifi_secrets.py` 与 `pico/weather_secrets.py` 是否存在（缺失时退出码 `2`）；
 2. 检查部署清单中的固件文件是否齐全；
-3. 通过 `mpremote` 只读探测设备，确认运行的是 MicroPython；
-4. 在设备上创建 `/pico/`，上传 17 个文件（15 个固件文件 + 2 份本地配置，含两份 TLS 根证书、字库 `font_cn.bin` 与农历表 `lunar_table.bin`），并把 `pico/main.py` 复制为设备根目录 `/main.py`；
+3. 枚举系统串口，确认 `-Port` 指定的端口真实存在，再通过 `mpremote` 只读探测设备，确认运行的是 MicroPython；
+4. 在设备上创建 `/pico/` 并校验 `PICO_PACKAGE_READY` 哨兵，上传 17 个文件（15 个固件文件 + 2 份本地配置，含两份 TLS 根证书、字库 `font_cn.bin` 与农历表 `lunar_table.bin`），并把 `pico/main.py` 复制为设备根目录 `/main.py`；
 5. 重启设备。
 
-脚本不会删除设备上的其他文件，也不会显示配置内容。
+退出码：`0` 成功，`1` 一般失败（文件缺失、端口不存在、mpremote 缺失、连接/上传失败或超时），`2` 缺少本地配置。连接探测与建目录各 30 秒超时，上传 180 秒超时；超时通常是 Thonny 占用串口或设备无响应，按提示拔插（必要时按住 BOOTSEL）后重试即可，重复运行会覆盖同名文件、不会删除设备上的其他文件，也不会显示配置内容。
 
 ### 4. 上电自检
 
@@ -208,6 +210,9 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 
 - `WX ok <温度> <天气>`：天气刷新成功。
 - `WX err <异常类型> [<errno>]`：天气刷新失败，只输出类型名与数字错误码（如存在），不输出 URL、Key 或响应体。
+- `NTP err <异常类型>`：本轮三个 NTP 主机全部失败，随后按退避重试。
+- `HKO err <异常类型>`：农历在线复核失败，本地表结果继续显示。
+- `Pico reset cause: <code>`：启动时打印本次复位来源，用于区分上电、看门狗复位与软复位。
 - 应用异常：屏幕显示 `APP ERROR`；若错误页也无法绘制，串口输出 `Pico dashboard error: <异常类型>`。
 
 ### 现场验收步骤
@@ -219,19 +224,24 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 5. 重新启动指标服务，屏幕应立即回到仪表盘。
 6. 断开 Pico 的 Wi‑Fi（或关闭路由器外网并等待下一次天气刷新），确认天气行出现 `旧` 标记；NTP 已校时的情况下时间仍正常走时。
 7. 重启 Pico，确认无需打开 Thonny 即可自动恢复显示。
+8. 运行中拔掉再插回主机网线：主机服务不应退出，终端可见「采样或广播失败：…；N 秒后重试」，网卡恢复后仪表盘自动回填。
+9. 若屏幕卡死超过 10 秒，看门狗应复位设备；串口重启后打印 `Pico reset cause: <code>`。
 
 ### 常见问题
 
 | 现象 | 排查方向 |
 | --- | --- |
-| 启动报「未配置 ETHERNET_INTERFACE」或「有线网卡“…”不存在或未连接」 | 核对 `pc_metrics/config.py` 的 `ETHERNET_INTERFACE`；网卡未启用或名称不符，报错信息会列出候选网卡 |
+| 启动报「启动失败：ETHERNET_INTERFACE 必须是非空字符串」或「有线网卡“…”不存在或未连接」 | 核对 `pc_metrics/config.py` 的 `ETHERNET_INTERFACE`；网卡未启用或名称不符，报错信息会列出候选网卡 |
+| 启动报「启动失败：UDP_PORT …」「SAMPLE_INTERVAL_SECONDS …」 | 配置值类型或范围不合法（端口 1–65535 的整数、间隔为有限正数） |
+| 运行中出现「采样或广播失败：…；N 秒后重试」 | 网卡被拔/禁用、计数器重置或编码失败；服务按 1/2/5/10/20/30 秒退避并自动重建广播端点，恢复后继续 |
 | 启动报「无法读取有线网卡…的 IPv4 默认网关」 | 网卡没有默认网关，或系统限制读取网络配置；用 `ETHERNET_IPV4_ADDRESS` 显式指定地址 |
 | Pico 一直显示时钟模式 | 主机与 Pico 不在同一广播域、Pico Wi‑Fi 未连接，或 UDP 8765 被防火墙拦截 |
 | 天气行显示「天气未配置」 | 未填写 `AMAP_WEB_KEY`，或 Key 未启用 Web 服务 |
 | 天气行显示「旧」 | 设备无法访问高德 API（DNS/TLS/网络出口问题），先检查串口 `WX err` |
 | 时间显示 `--:--:--` | Pico 未联网或 NTP 请求失败；确认 Wi‑Fi 与 UDP 123 出站未被拦截 |
-| 部署失败 | 串口被占用、未安装 `mpremote`，或设备未运行 MicroPython |
-| GPU 显示 `--` | 没有 NVIDIA 显卡/驱动，或 `nvidia-smi` 不在 PATH |
+| 部署失败（退出码 1） | 串口被占用、`-Port` 指定的端口不存在、未安装 `mpremote`，或设备未运行 MicroPython；脚本会列出本机串口 |
+| 部署报缺少本地配置（退出码 2） | 未复制 `pico/wifi_secrets.py` 或 `pico/weather_secrets.py` |
+| GPU 显示 `--` | 没有 NVIDIA 显卡/驱动、`nvidia-smi` 不在 PATH，或连续失败后处于 10 秒降频期（终端会提示一次） |
 
 ## 配置参考
 
@@ -248,7 +258,10 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 | 协议版本 | `1` | `pc_metrics/protocol.py` |
 | 离线判定 | `3000` 毫秒 | `pico/app.py` |
 | 主循环 tick | `100` 毫秒 | `pico/app.py` |
-| 最小重绘间隔 | `1000` 毫秒 | `pico/app.py` |
+| 重绘时机 | 时间秒数变化（兜底 `1000` 毫秒） | `pico/app.py` |
+| 看门狗超时 | `10000` 毫秒 | `pico/main.py` |
+| 天气/农历响应总超时 | `5` 秒 | `pico/weather.py` |
+| 农历在线复核退避 | 1 / 5 / 30 / 60 分钟 | `pico/lunar.py` |
 | 天气刷新 | 30 分钟 | `pico/weather.py` |
 | 天气失败退避 | 1 / 5 / 15 / 30 分钟 | `pico/weather.py` |
 | NTP 重校间隔 | 6 小时 | `pico/time_sync.py` |
@@ -306,7 +319,7 @@ pc_partner/
 
 ## UDP 协议
 
-主机每秒发送一个 UTF-8 JSON 数据包（紧凑格式），字段固定为 8 个：
+主机稳态约每秒发送一个 UTF-8 JSON 数据包（紧凑格式），字段固定为 8 个：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -325,7 +338,7 @@ pc_partner/
 {"v":1,"seq":42,"ts":1793713669,"cpu":16.0,"gpu":38.0,"ram":57.0,"rx":0.1,"tx":0.0}
 ```
 
-约束：数据包不超过 512 字节；主机端解码器拒绝重复字段、`NaN`/`Infinity`、多余或缺失字段与越界数值。Pico 端会丢弃重复序号、明显过期以及校验失败的包。
+约束：数据包不超过 512 字节；`cpu`/`gpu`/`ram` 限定 0–100，`seq`/`ts`/`rx`/`tx` 只校验下界（`seq >= 0`、`ts >= 1`、速率非负），允许任意大的正数。主机生产路径只做编码；`pc_metrics.protocol.decode_packet` 供测试与诊断使用，拒绝重复字段、`NaN`/`Infinity`、多余或缺失字段与上述越界数值，并单独报告重复字段名。Pico 端会丢弃重复序号、明显过期以及校验失败的包。
 
 协议没有校验和/CRC，完整性依赖 UDP 报文本身与 JSON 字段严格校验；损坏或不合规的数据包会被直接丢弃，不会显示到屏幕。
 
@@ -341,8 +354,9 @@ python -m unittest discover -s tests -v
 python -m compileall pc_metrics tests tools pico
 ```
 
-- 测试覆盖协议编解码、采集与广播地址、显示布局、应用状态机、时钟/农历、Wi‑Fi 状态机与启动入口等；涉及真实硬件与网络的路径以实机验证为准。
-- 验证环境：Python 3.11.9 + Windows；`python -m unittest discover -s tests -v` 共 105 项全部通过（2026-11-03），`python -m compileall pc_metrics tests tools pico` 无错误。
+- 测试覆盖协议编解码、采集与广播地址、主机循环容错与重建、显示布局、应用主循环（秒对齐/重连/看门狗）、时钟/农历、天气后台线程、Wi‑Fi 状态机、启动入口与部署清单等；涉及真实硬件与网络的路径以实机验证为准。
+- 验证环境：Windows + Python 3.11.9 与 Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 190 项全部通过（2026-11-05），`python -m compileall pc_metrics tests tools pico` 无错误。
+- 主机侧与 Pico 逻辑用 mock/注入覆盖，不依赖真实网卡或串口；两个 PowerShell 脚本有静态一致性测试（`tests/test_deploy_manifest.py`）但未在 CI 中执行，改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次。仓库当前未配置 CI。
 - 重新生成字库（需 CJK TTF/OTF 与 ASCII 字体）：
 
   ```powershell
@@ -365,7 +379,7 @@ python -m compileall pc_metrics tests tools pico
 - 主机与 Pico 必须位于同一可广播子网；访客网络、客户端隔离与跨 VLAN 会阻断 UDP 广播。
 - 天气定位依赖大陆 IPv4 出口；可用 `CITY_OVERRIDE_ADCODE` 固定城市。
 - 农历本地表覆盖 1901–2100；HKO 在线 API 复核仅限其文档支持的「当年及后两年」，表外年份只使用本地表结果。
-- HKO 在线农历复核 API 的端到端可用性尚未完成验收：开发环境发现其中间 CA 已被撤销，而设备没有 CRL/OCSP 支持，且不允许关闭 TLS 校验；该路径失败时保留本地表结果。此外该复核请求在主循环内同步执行（连接超时 2 秒，DNS 解析无代码级超时），网络异常时可能短暂阻塞刷新。
+- HKO 在线农历复核 API 的端到端可用性尚未完成验收：开发环境发现其中间 CA 已被撤销，而设备没有 CRL/OCSP 支持，且不允许关闭 TLS 校验；该路径失败时保留本地表结果并在串口输出 `HKO err`。复核在后台线程执行，但 DNS 解析（`getaddrinfo`）本身没有代码级超时，极端情况下该后台线程可能长时间不返回（显示不受影响）。
 - 首次上电或断电后需要联网完成 NTP 校时，时间才可用。
 - 指标包为局域网明文广播，无认证/加密，不适用于不可信网络。
 - 天气 Key 会写入设备闪存，存在被设备持有者提取的风险；请使用独立 Key 并限制配额。

@@ -79,9 +79,25 @@ class DashboardState:
         return "dashboard"
 
 
-def run():
-    """Connect to Wi-Fi, accept PC broadcasts, and redraw once per second."""
+def run(
+    screen=None,
+    watchdog=None,
+    time_module=None,
+    receiver_factory=None,
+    wifi_factory=None,
+    synchronizer_factory=None,
+    state_factory=None,
+    lunar_factory=None,
+    weather_factory=None,
+):
+    """Connect to Wi-Fi, accept PC broadcasts, and redraw on second boundaries.
+
+    Every collaborator is injectable so the loop itself can run under the host
+    test suite with a fake clock, fake screen and fake network services.
+    """
     import time
+
+    ticks = time_module or time
 
     try:
         from .st7735 import ST7735
@@ -98,51 +114,93 @@ def run():
         from lunar import HkoLunarService
         from weather import AmapWeatherService
 
-    screen = ST7735()
-    receiver = UdpReceiver()
-    wifi = WifiManager(ticks_diff=time.ticks_diff)
-    synchronizer = TimeSynchronizer()
-    state = DashboardState(ticks_diff=time.ticks_diff)
-    lunar = HkoLunarService()
-    weather = AmapWeatherService()
+    make_receiver = receiver_factory or UdpReceiver
+    make_wifi = wifi_factory or (lambda: WifiManager(ticks_diff=ticks.ticks_diff))
+    make_synchronizer = synchronizer_factory or TimeSynchronizer
+    make_state = state_factory or (lambda: DashboardState(ticks_diff=ticks.ticks_diff))
+    make_lunar = lunar_factory or HkoLunarService
+    make_weather = weather_factory or AmapWeatherService
+
+    if screen is None:
+        screen = ST7735()
+    wifi = make_wifi()
+    synchronizer = make_synchronizer()
+    state = make_state()
+    lunar = make_lunar()
+    weather = make_weather()
+
+    receiver = None
+    try:
+        receiver = make_receiver()
+    except OSError:
+        receiver = None
+
     last_draw_ms = None
     last_mode = None
     last_metrics_ms = None
     last_date = None
+    last_time_text = None
     render_state = None
 
     try:
         while True:
-            now_ms = time.ticks_ms()
+            if watchdog is not None:
+                watchdog.feed()
+            now_ms = ticks.ticks_ms()
             wifi_connected, wifi_changed = wifi.poll(now_ms)
+
+            if wifi_changed and wifi_connected:
+                # A Wi-Fi reconnect can invalidate lwIP sockets; rebind the
+                # listener so metrics keep arriving after the link returns.
+                if receiver is not None:
+                    try:
+                        receiver.close()
+                    except OSError:
+                        pass
+                    receiver = None
+            if receiver is None and wifi_connected:
+                try:
+                    receiver = make_receiver()
+                except OSError:
+                    receiver = None
+
             synchronizer.sync_if_due(
                 now_ms,
                 wifi_connected,
                 force=wifi_changed and wifi_connected,
             )
+            clock = synchronizer.snapshot()
+            clock_ready = clock["time_text"] is not None
+
             weather_snapshot = weather.poll(
                 now_ms,
                 wifi_connected,
                 wifi_changed=wifi_changed,
-                time_synced=synchronizer.synced,
+                clock_ready=clock_ready,
             )
 
-            payload = receiver.poll()
-            if payload is not None and state.accept_payload(payload, now_ms):
-                last_metrics_ms = state.last_received_ms
+            if receiver is not None:
+                payload = receiver.poll()
+                if payload is not None and state.accept_payload(payload, now_ms):
+                    last_metrics_ms = state.last_received_ms
+            else:
+                last_metrics_ms = None
 
-            clock = synchronizer.snapshot()
             date_value = clock["date"]
             if date_value != last_date:
                 last_date = date_value
                 lunar.set_date(date_value, now_ms)
 
             mode = state.mode(now_ms)
+            # Redraw as soon as the wall-clock second changes so the displayed
+            # second never skips; a 1 s fallback still covers static screens.
+            seconds_changed = clock["time_text"] != last_time_text
             draw_due = (
                 last_draw_ms is None
-                or time.ticks_diff(now_ms, last_draw_ms) >= 1000
                 or mode != last_mode
                 or last_metrics_ms == now_ms
+                or seconds_changed
+                or ticks.ticks_diff(now_ms, last_draw_ms) >= 1000
             )
             if draw_due:
                 lunar_text = lunar.display_text
@@ -165,22 +223,24 @@ def run():
                         clock["weekday_full"],
                         lunar_text,
                         wifi_connected,
-                        synchronizer.synced,
+                        clock_ready,
                         previous=render_state,
                         needs_config=wifi.needs_config,
                         weather=weather_snapshot,
                     )
                 last_draw_ms = now_ms
                 last_mode = mode
+                last_time_text = clock["time_text"]
 
-            if date_value is not None and wifi_connected and synchronizer.synced:
-                lunar.refresh_api_if_due(
-                    now_ms,
-                    current_year=clock["year"],
-                    wifi_connected=wifi_connected,
-                    time_synced=synchronizer.synced,
-                )
+            lunar.poll(
+                now_ms,
+                current_year=clock["year"],
+                wifi_connected=wifi_connected,
+                clock_ready=clock_ready,
+                peer_busy=getattr(weather, "busy", False),
+            )
 
-            time.sleep_ms(100)
+            ticks.sleep_ms(100)
     finally:
-        receiver.close()
+        if receiver is not None:
+            receiver.close()
