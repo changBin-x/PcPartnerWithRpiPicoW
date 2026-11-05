@@ -44,6 +44,16 @@ project(pico_status_screen C CXX ASM)
 
 include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
 
+# mbedTLS 走本工程的裁剪配置：SDK 自带的 pico_mbedtls_config.h 会
+# #include "mbedtls_config.h"，而 mbedTLS 3.6 已把该文件移入 include/mbedtls/
+# 子目录，在本机工具链上直接报「找不到头文件」。显式指定自己的配置头既绕开
+# 这个问题，也把 TLS 能力裁到「只要一次 HTTPS GET」所需的最小集合。
+#
+# 必须在 pico_sdk_init() 调用之前赋值：SDK 在为 pico_mbedtls 生成接口编译
+# 选项时就读取该变量，晚于初始化则完全失效。
+set(PICO_MBEDTLS_CONFIG_FILE
+    ${CMAKE_CURRENT_LIST_DIR}/include/mbedtls_project_config.h)
+
 pico_sdk_init()
 
 set(CMAKE_C_STANDARD 11)
@@ -147,6 +157,7 @@ target_link_libraries(pico_status_screen PRIVATE
     FreeRTOS-Kernel-Heap4
     hardware_watchdog
     pico_cyw43_arch_lwip_sys_freertos
+    pico_mbedtls
     pico_stdlib)
 
 pico_enable_stdio_usb(pico_status_screen 1)
