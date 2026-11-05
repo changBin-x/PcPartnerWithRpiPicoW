@@ -25,6 +25,8 @@
 - 主机端不开放任何 TCP/HTTP 端口，也不依赖云服务；数据只在本机所在广播域内传播。
 - 界面预览来自 2026-11-03 的 Pico W + ST7735S 实机。2026-11-06 修复版本已通过本机 mpremote 部署到 MicroPython 1.29.0，并验证天气请求与真实 UDP 指标接收；完整验收尚未结束，详见下方「本轮真机验证」。当前 199 项单元测试在 Linux + Python 3.12.3 上通过；修复后的 Windows 路径未实跑。
 
+> **另有一条 C + FreeRTOS 固件实现**，位于 [`pico_freertos_firmware/`](pico_freertos_firmware/README.md)：协议、界面与资源与本文的 MicroPython 版本共用，改用 pico-sdk + FreeRTOS SMP 双核（Core 0 跑网络、Core 1 独占刷屏），带硬件看门狗与串口诊断，宿主侧 13 个测试套件全绿。它同样**尚未在实机运行**，验收边界见该目录 README 的「已知限制」。
+
 ## 功能特性
 
 ### 电脑指标仪表盘
