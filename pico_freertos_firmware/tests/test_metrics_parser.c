@@ -192,6 +192,37 @@ int main(void) {
     assert(parser.last_seq == 2U);
   }
 
+  /* 9. 报文尾部严格校验：只允许空白字符，任何垃圾字节整包拒绝。 */
+  {
+    const char* json_with_garbage =
+        "{\"v\":1,\"seq\":3,\"ts\":1700000008,\"cpu\":25.4,"
+        "\"gpu\":40.0,\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}XYZ";
+    const char* json_with_whitespace =
+        "{\"v\":1,\"seq\":3,\"ts\":1700000008,\"cpu\":25.4,"
+        "\"gpu\":40.0,\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}\r\n \t";
+    const char* json_with_binary =
+        "{\"v\":1,\"seq\":4,\"ts\":1700000009,\"cpu\":25.4,"
+        "\"gpu\":40.0,\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}\x01";
+
+    /* 合法 JSON 后跟非空白内容：整包拒绝，且不得推进 last_seq。 */
+    result = parse_cstr(&parser, json_with_garbage, &data);
+    assert(result == kMetricsErrInvalidJson);
+    assert(parser.last_seq == 2U);
+
+    /* 同一报文（seq 3）仅尾部换成空白字符后必须被接受。 */
+    result = parse_cstr(&parser, json_with_whitespace, &data);
+    assert(result == kMetricsParseOk);
+    assert(data.seq == 3U);
+    assert(data.ts == 1700000008U);
+    assert(APPROX_EQ(data.cpu, 25.4f));
+    assert(parser.last_seq == 3U);
+
+    /* 尾部是 NUL 之外的二进制字节时同样拒绝。 */
+    result = parse_cstr(&parser, json_with_binary, &data);
+    assert(result == kMetricsErrInvalidJson);
+    assert(parser.last_seq == 3U);
+  }
+
   printf("PASS: test_metrics_parser\n");
   return 0;
 }

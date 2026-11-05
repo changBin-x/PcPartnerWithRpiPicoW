@@ -6,8 +6,8 @@
  *   {"v":1,"seq":1,"ts":1700000000,"cpu":25.4,
  *    "gpu":48.0,"ram":65.2,"rx":10.5,"tx":2.1}
  *
- * 解析策略刻意从严：协议版本未知、字段缺失、数值越界、序号非递增的
- * 报文一律拒绝。
+ * 解析策略刻意从严：协议版本未知、字段缺失、数值越界、序号非递增，
+ * 或报文尾部夹带非空白字节的报文一律拒绝。
  */
 
 #include "metrics_parser.h"
@@ -29,6 +29,22 @@
 /* value 落在 [min, max] 内返回 true；NaN 也返回 false。 */
 static bool value_in_range(double value, double min, double max) {
   return (value >= min) && (value <= max);
+}
+
+/*
+ * 判断 JSON 值之后的剩余字节是否只包含空白字符。
+ * RFC 8259 允许忽略的空白只有空格、制表符、回车和换行，
+ * 其余字节（包括 NUL 和任意二进制垃圾）一律视为多余内容。
+ */
+static bool tail_is_whitespace_only(const char* tail, const char* limit) {
+  while (tail < limit) {
+    const char c = *tail;
+    if ((c != ' ') && (c != '\t') && (c != '\r') && (c != '\n')) {
+      return false;
+    }
+    ++tail;
+  }
+  return true;
 }
 
 /*
@@ -115,6 +131,7 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
   cJSON* item_ram = NULL;
   cJSON* item_rx = NULL;
   cJSON* item_tx = NULL;
+  const char* parse_end = NULL;
   PcMetricsData parsed = {0};
   MetricsParseResult result = kMetricsParseOk;
   uint32_t seq = 0U;
@@ -125,8 +142,9 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
     return kMetricsErrInvalidJson;
   }
 
-  root = cJSON_ParseWithLength(buffer, length);
-  if ((root == NULL) || !cJSON_IsObject(root)) {
+  root = cJSON_ParseWithLengthOpts(buffer, length, &parse_end, 0);
+  if ((root == NULL) || !cJSON_IsObject(root) || (parse_end == NULL) ||
+      !tail_is_whitespace_only(parse_end, buffer + length)) {
     result = kMetricsErrInvalidJson;
     goto cleanup;
   }
