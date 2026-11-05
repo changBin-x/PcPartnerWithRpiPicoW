@@ -155,6 +155,7 @@ target_link_libraries(pico_status_screen PRIVATE
     cjson_lib
     FreeRTOS-Kernel
     FreeRTOS-Kernel-Heap4
+    hardware_spi
     hardware_watchdog
     pico_cyw43_arch_lwip_sys_freertos
     pico_mbedtls
