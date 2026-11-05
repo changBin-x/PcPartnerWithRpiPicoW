@@ -18,6 +18,7 @@
 #include "cyw43.h"
 #include "firmware_secrets.h"
 #include "pico/cyw43_arch.h"
+#include "firmware_checkin.h"
 #include "system_state.h"
 #include "task.h"
 
@@ -46,8 +47,8 @@ static volatile bool s_connected = false;
 static volatile bool s_network_ready = false;
 #ifdef PICO_ON_DEVICE
 /* 通过 volatile 指针读取 SSID，避免编译器在 SSID 为空字符串时把
- * 后面的 CYW43 初始化与重连代码整段做常量折叠掉；这些代码即使当前
- * 未配置 Wi-Fi 也必须保留在镜像里，配置后无需重新编译即可生效。 */
+ * 后面的 CYW43 初始化与重连代码整段做常量折叠掉；当前未配置 Wi-Fi
+ * 时也要让连接路径留在镜像里，换入凭据重新构建后即可使用。 */
 static const char* volatile s_wifi_ssid = kFirmwareWifiSsid;
 static bool s_started = false;
 #endif
@@ -71,6 +72,8 @@ bool wifi_manager_is_network_ready(void) { return s_network_ready; }
 /* 已连接时每秒检查一次链路；掉线后立即重新连接。 */
 static void wifi_manager_wait_while_connected(void) {
   for (;;) {
+    /* 已连接期间主循环停在这里，签到必须在这一层也有。 */
+    FIRMWARE_CHECK_IN(kSupervisorSlotWifi);
     vTaskDelay(pdMS_TO_TICKS(kWifiStatusPollMs));
     if (cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {
       continue;
@@ -108,6 +111,9 @@ static void wifi_manager_task(void* argument) {
 
   int attempt = 0;
   for (;;) {
+    /* 连接成功后会一直在 wait_while_connected 里轮询，所以签到放在循环开头，
+     * 保证「已连上」和「在重连」两种状态都有心跳。 */
+    FIRMWARE_CHECK_IN(kSupervisorSlotWifi);
     result = cyw43_arch_wifi_connect_timeout_ms(ssid, kFirmwareWifiPassword,
                                                 CYW43_AUTH_WPA2_AES_PSK,
                                                 kWifiConnectTimeoutMs);

@@ -1,10 +1,13 @@
 /**
  * @file main.c
- * @brief 固件入口：初始化 stdio 与系统状态，创建双核心跳任务后启动
- *        FreeRTOS SMP 调度器。
+ * @brief 固件入口：按依赖顺序拉起全部子系统，然后启动 FreeRTOS SMP 调度器。
  *
- * 当前只提供可验证骨架：Core 0 / Core 1 各一个心跳任务，周期打印绑定核号
- * 与递增计数。Wi-Fi、显示与看门狗业务由后续任务在 src/ 下接入。
+ * 启动顺序有讲究，逐条说明：
+ *  1. stdio 与复位原因最先打印 —— 若后面任何一步卡住，看门狗复位后至少
+ *     能从日志里看出上一次死在什么阶段。
+ *  2. 看门狗在业务任务创建之前就启动 —— 创建阶段若卡住同样要能复位。
+ *  3. 业务任务（显示、网络）只是被「创建」，真正的初始化发生在各自任务里，
+ *     这样初始化耗时不会拖延调度器启动，也不会阻塞另一核的渲染。
  */
 
 #include <stdint.h>
@@ -15,42 +18,55 @@
 
 #include "pico/stdlib.h"
 
-#include "system_state.h"
-
 #include "asset_store.h"
+#include "firmware_checkin.h"
+#include "network_start.h"
+#include "supervisor.h"
+#include "supervisor_monitor.h"
+#include "system_state.h"
+#include "ui_render.h"
 
-/* 心跳任务参数。 */
+/* 心跳任务参数。签到周期 1 秒，但日志每 30 秒才打一行——串口是给人看的，
+ * 每秒刷屏会把真正有用的告警冲走。 */
 enum {
   kHeartbeatPeriodMs = 1000,
+  kHeartbeatLogEvery = 30,
   kHeartbeatPriority = 2,
   kHeartbeatStackWords = 512,
 };
 
-/* 心跳任务配置：core_id 同时用于亲和性绑定与日志标签。 */
+/* 心跳任务配置：core_id 同时用于亲和性绑定与日志标签，slot 用于向监督任务
+ * 证明本核仍在运转。 */
 typedef struct {
   uint32_t core_id;
   const char* task_name;
+  SupervisorSlot slot;
 } HeartbeatTaskConfig;
 
 static const HeartbeatTaskConfig kCore0Heartbeat = {
     .core_id = 0,
     .task_name = "heartbeat_core0",
+    .slot = kSupervisorSlotCore0,
 };
 
 static const HeartbeatTaskConfig kCore1Heartbeat = {
     .core_id = 1,
     .task_name = "heartbeat_core1",
+    .slot = kSupervisorSlotCore1,
 };
 
-/* 心跳任务主体：打印绑定核号与 FreeRTOS 实际调度所在核号。 */
+/* 心跳任务主体：定期签到，并周期性打印绑定核号与 FreeRTOS 实际调度所在核号。
+ * 两个核号应当始终一致；若不一致说明亲和性掩码没生效。 */
 static void heartbeat_task(void* context) {
   const HeartbeatTaskConfig* config = (const HeartbeatTaskConfig*)context;
   uint32_t counter = 0;
 
   for (;;) {
-    printf("[core%u] heartbeat=%u running_on_core=%u\n",
-           (unsigned)config->core_id, (unsigned)counter,
-           (unsigned)portGET_CORE_ID());
+    FIRMWARE_CHECK_IN(config->slot);
+    if (counter % kHeartbeatLogEvery == 0) {
+      printf("[core%u] 心跳=%u 实际运行核=%u\n", (unsigned)config->core_id,
+             (unsigned)counter, (unsigned)portGET_CORE_ID());
+    }
     ++counter;
     vTaskDelay(pdMS_TO_TICKS(kHeartbeatPeriodMs));
   }
@@ -149,6 +165,11 @@ void vApplicationGetTimerTaskMemory(
 
 int main(void) {
   stdio_init_all();
+
+  /* 必须最先执行：它读的是看门狗 scratch 寄存器里的阶段标记，任何后续
+   * printf 都不会影响这份信息，但先打印能让日志顺序符合阅读直觉。 */
+  supervisor_log_reset_reason();
+
   system_state_init();
 
   /* 字模、农历表与根证书都以 const 数据的形式链接在 Flash 里，这里只登记
@@ -157,8 +178,20 @@ int main(void) {
     panic("只读资源初始化失败");
   }
 
+  /* 看门狗从这里开始倒计时。放在创建任务之前：连创建阶段卡住都会复位。 */
+  if (!supervisor_start()) {
+    panic("监督任务创建失败");
+  }
+
   start_heartbeat_task(&kCore0Heartbeat);
   start_heartbeat_task(&kCore1Heartbeat);
+
+  /* 显示与网络都只创建任务，初始化在各自任务内完成；显示侧不返回状态，
+   * 任务内部的失败会自行打印并置为无输出，不影响 Core 0 的网络业务。 */
+  ui_render_start_task();
+  if (!network_start()) {
+    printf("网络任务创建失败，设备将离线运行。\n");
+  }
 
   /* RP2040 SMP 端口会在启动调度器时自行拉起 Core 1。 */
   vTaskStartScheduler();

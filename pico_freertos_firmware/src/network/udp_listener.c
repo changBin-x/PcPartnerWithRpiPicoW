@@ -20,6 +20,7 @@
 #include "metrics_parser.h"
 #include "pico/cyw43_arch.h"
 #include "queue.h"
+#include "firmware_checkin.h"
 #include "system_state.h"
 #include "task.h"
 #include "wifi_manager.h"
@@ -110,6 +111,7 @@ static void udp_listener_task(void* argument) {
   static UdpPacket packet;
   uint32_t reported_drops = 0;
   for (;;) {
+    FIRMWARE_CHECK_IN(kSupervisorSlotUdp);
     if (xQueueReceive(s_queue, &packet,
                       pdMS_TO_TICKS(kUdpListenerReceiveTimeoutMs)) != pdTRUE) {
       continue;

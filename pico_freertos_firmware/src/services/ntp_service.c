@@ -113,6 +113,7 @@ bool ntp_service_parse_packet(const uint8_t* packet, size_t length,
 #include "lwip/udp.h"
 #include "mbedtls_time_source.h"
 #include "semphr.h"
+#include "firmware_checkin.h"
 #include "system_state.h"
 #include "task.h"
 #include "wifi_manager.h"
@@ -373,6 +374,7 @@ static void ntp_task(void* argument) {
         ++retry_index;
       }
     }
+    FIRMWARE_CHECK_IN(kSupervisorSlotNtp);
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }

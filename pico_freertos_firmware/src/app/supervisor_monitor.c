@@ -45,7 +45,9 @@ void supervisor_monitor_reset(uint32_t now_ms) {
 }
 
 void supervisor_monitor_check_in(SupervisorSlot slot, uint32_t now_ms) {
-  if (slot < 0 || slot >= kSupervisorSlotCount) {
+  /* SupervisorSlot 的底层类型是无符号，写成 slot < 0 会被 -Wtype-limits
+   * 判为恒假；先转无符号再比，负值会回绕成大数从而被正确拒绝。 */
+  if ((unsigned)slot >= (unsigned)kSupervisorSlotCount) {
     return;
   }
   s_last_check_in_ms[slot] = now_ms;
@@ -71,14 +73,18 @@ uint32_t supervisor_monitor_stale_count(uint32_t now_ms) {
 }
 
 const char* supervisor_slot_name(SupervisorSlot slot) {
-  if (slot < 0 || slot >= kSupervisorSlotCount) {
+  /* SupervisorSlot 的底层类型是无符号，写成 slot < 0 会被 -Wtype-limits
+   * 判为恒假；先转无符号再比，负值会回绕成大数从而被正确拒绝。 */
+  if ((unsigned)slot >= (unsigned)kSupervisorSlotCount) {
     return "unknown";
   }
   return kSlotNames[slot];
 }
 
 uint32_t supervisor_slot_timeout_ms(SupervisorSlot slot) {
-  if (slot < 0 || slot >= kSupervisorSlotCount) {
+  /* SupervisorSlot 的底层类型是无符号，写成 slot < 0 会被 -Wtype-limits
+   * 判为恒假；先转无符号再比，负值会回绕成大数从而被正确拒绝。 */
+  if ((unsigned)slot >= (unsigned)kSupervisorSlotCount) {
     return 0u;
   }
   return kSlotTimeoutsMs[slot];

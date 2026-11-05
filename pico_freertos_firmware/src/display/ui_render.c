@@ -8,6 +8,7 @@
 #include "asset_store.h"
 #include "font_engine.h"
 #include "st7735s_driver.h"
+#include "firmware_checkin.h"
 #include "system_state.h"
 #include "ui_layout.h"
 
@@ -522,6 +523,7 @@ static void vTaskUIRender(void* context) {
   }
 
   for (;;) {
+    FIRMWARE_CHECK_IN(kSupervisorSlotUi);
     vTaskDelay(pdMS_TO_TICKS(kRenderPeriodMs));
     SystemSnapshot current;
     system_state_get_snapshot(&current);

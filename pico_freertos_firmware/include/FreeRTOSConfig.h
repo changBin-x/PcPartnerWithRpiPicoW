@@ -20,6 +20,10 @@
 #define configUSE_RECURSIVE_MUTEXES              1
 #define configUSE_COUNTING_SEMAPHORES            1
 #define configQUEUE_REGISTRY_SIZE                8
+/* 打开后 uxTaskGetSystemState 可用，监督任务得以每 10 秒打印一次整机任务表
+ * （状态、优先级、栈最低水位）。设备没有调试器可用，这张表是判断「某个
+ * 任务栈给少了」的唯一依据。 */
+#define configUSE_TRACE_FACILITY                 1
 #define configUSE_QUEUE_SETS                     1
 #define configUSE_MALLOC_FAILED_HOOK             1
 #define configCHECK_FOR_STACK_OVERFLOW           2
@@ -35,7 +39,10 @@
 /* ------------------------------------------------------------------ 内存分配 */
 #define configSUPPORT_STATIC_ALLOCATION          1
 #define configSUPPORT_DYNAMIC_ALLOCATION         1
-#define configTOTAL_HEAP_SIZE                    (80 * 1024)
+/* 96KB 而不是规格最初的 80KB：实测各任务栈合计约 46KB，TLS 握手还要在堆上
+ * 额外申请 4~8KB，80KB 的余量只剩个位数 KB。RP2040 的 264KB SRAM 里还有
+ * 约 101KB 从未被用过，把堆提到 96KB 只是占用这部分闲置内存。 */
+#define configTOTAL_HEAP_SIZE                    (96 * 1024)
 
 /* -------------------------------------------------------------- 可选 API 开关 */
 #define INCLUDE_vTaskPrioritySet                 1
@@ -48,6 +55,8 @@
 #define INCLUDE_xTaskGetSchedulerState           1
 #define INCLUDE_xTaskGetCurrentTaskHandle        1
 #define INCLUDE_uxTaskGetStackHighWaterMark      1
+#define INCLUDE_uxTaskGetSystemState             1
+#define INCLUDE_pcTaskGetTaskName                1
 #define INCLUDE_xTimerGetTimerDaemonTaskHandle   1
 #define INCLUDE_xTimerPendFunctionCall           1
 

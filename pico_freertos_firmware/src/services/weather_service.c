@@ -351,6 +351,7 @@ bool weather_service_parse_json(const char* json, WeatherData* out) {
 #include "mbedtls_time_source.h"
 #include "pico/cyw43_arch.h"
 #include "semphr.h"
+#include "firmware_checkin.h"
 #include "system_state.h"
 #include "task.h"
 #include "wifi_manager.h"
@@ -927,6 +928,7 @@ static void weather_task(void* argument) {
   uint32_t retry_index = 0;
 
   for (;;) {
+    FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
     if (!wifi_manager_is_network_ready() || !mbedtls_time_source_is_valid()) {
       vTaskDelay(pdMS_TO_TICKS(5000));
       continue;
