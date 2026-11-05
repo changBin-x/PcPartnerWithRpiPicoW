@@ -23,7 +23,7 @@
 - 主机端（`pc_metrics/`）用 Python 与 psutil 采集指标，稳态约每秒向所在子网的定向广播地址发送一个不超过 512 字节的 JSON 数据包（UDP 8765）。
 - Pico 端（`pico/`）用 MicroPython 接收指标并驱动 TFT 屏幕；没有指标时显示时钟、农历和天气。
 - 主机端不开放任何 TCP/HTTP 端口，也不依赖云服务；数据只在本机所在广播域内传播。
-- 当前版本已在 Pico W + ST7735S 上完成整机部署验证（MicroPython 1.29.0，2026-11-03）；`tests/` 下 190 项单元测试通过（Windows + Python 3.11.9，Linux + Python 3.12.3，2026-11-05）。
+- 界面预览来自 2026-11-03 的 Pico W + ST7735S 实机。2026-11-06 修复版本已通过本机 mpremote 部署到 MicroPython 1.29.0，并验证天气请求与真实 UDP 指标接收；完整验收尚未结束，详见下方「本轮真机验证」。当前 199 项单元测试在 Linux + Python 3.12.3 上通过；修复后的 Windows 路径未实跑。
 
 ## 功能特性
 
@@ -40,7 +40,7 @@
 
 - NTP 校时（`ntp.aliyun.com` 等阿里云 NTP 主机），按 UTC+8 显示；成功后每 6 小时重新校时，失败按 30 秒、1 分钟、5 分钟、15 分钟退避重试。
 - 大号时间（26 px 数字）、公历日期、星期。
-- 中文干支农历：优先使用随固件安装的香港天文台（HKO）1901–2100 年本地逐日表，表内日期无需联网；联网后由后台线程复核「当年及后两年」的 HKO 在线结果（连接超时 2 秒、整段响应有总超时），与本地表不一致时仅记录差异，显示仍以本地表为准，复核失败不影响本地结果显示，按 1、5、30、60 分钟退避重试。
+- 中文干支农历：优先使用随固件安装的香港天文台（HKO）1901–2100 年本地逐日表，表内日期无需联网；联网后由后台线程复核「当年及后两年」的 HKO 在线结果（单次 socket 操作超时 2 秒，不含 DNS，也不是整次请求的硬上限），与本地表不一致时仅记录差异，显示仍以本地表为准，复核失败不影响本地结果显示，按 1 分钟、5 分钟、30 分钟、6 小时退避重试。
 - 时间未同步时显示 `--:--:--` 与「时间同步中」占位，仪表盘则显示 `TIME SYNC`；时钟页不再单独显示 NTP 状态行，同步结果直接体现在时间是否可用。
 
 ### 在线天气
@@ -261,8 +261,8 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 | 主循环 tick | `100` 毫秒 | `pico/app.py` |
 | 重绘时机 | 时间秒数变化（兜底 `1000` 毫秒） | `pico/app.py` |
 | 看门狗超时 | `8000` 毫秒（RP2040 上限 8388） | `pico/main.py` |
-| 天气/农历响应总超时 | `5` 秒 | `pico/weather.py` |
-| 农历在线复核退避 | 1 / 5 / 30 / 60 分钟 | `pico/lunar.py` |
+| 天气响应读取预算 | `5` 秒（不含 DNS、连接与 TLS 握手） | `pico/weather.py` |
+| 农历在线复核退避 | 1 分钟 / 5 分钟 / 30 分钟 / 6 小时 | `pico/lunar.py` |
 | 天气刷新 | 30 分钟 | `pico/weather.py` |
 | 天气失败退避 | 1 / 5 / 15 / 30 分钟 | `pico/weather.py` |
 | NTP 重校间隔 | 6 小时 | `pico/time_sync.py` |
@@ -356,7 +356,7 @@ python -m compileall pc_metrics tests tools pico
 ```
 
 - 测试覆盖协议编解码、采集与广播地址、主机循环容错与重建、显示布局、应用主循环（秒对齐/重连/看门狗）、时钟/农历、天气后台线程、Wi‑Fi 状态机、启动入口与部署清单等；涉及真实硬件与网络的路径以实机验证为准。
-- 验证环境：Windows + Python 3.11.9 与 Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 190 项全部通过（2026-11-05），`python -m compileall pc_metrics tests tools pico` 无错误。
+- 本轮验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 199 项全部通过（2026-11-06），`python -m pyflakes pico pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools pico` 无错误。历史 Windows + Python 3.11.9 的结果不代表本轮修复已在 Windows 上验证。
 - 主机侧与 Pico 逻辑用 mock/注入覆盖，不依赖真实网卡或串口；两个 PowerShell 脚本有静态一致性测试（`tests/test_deploy_manifest.py`）但未在 CI 中执行，改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次。仓库当前未配置 CI。
 - 重新生成字库（需 CJK TTF/OTF 与 ASCII 字体）：
 
@@ -372,6 +372,15 @@ python -m compileall pc_metrics tests tools pico
   ```
 
 `pico/font_cn.py` 与 `pico/font_cn.bin` 由 `tools/build_font.py` 生成，`pico/lunar_table.bin` 由 `tools/build_lunar_table.py` 生成，请勿手工修改。
+
+## 本轮真机验证（2026-11-06）
+
+- 本机通过 mpremote 1.29.0 将固件部署到 Pico W（MicroPython 1.29.0），保留设备原有 Wi-Fi 配置，不读取其密码；天气 Key 单独更新，未纳入 Git。
+- 正常启动串口观察 65 秒，记录到 `Pico reset cause: 3`、`WX ok 14.0 阴` 与 `HKO err OSError`，窗口内未见再次启动日志。这只证明该观察窗口，不代表长时间稳定性通过。
+- 主机 Linux 有线网卡以显式 IPv4 地址运行采集器，通过真实局域网 UDP 广播；带 `machine.WDT(timeout=8000)` 的设备端生产主循环诊断接受了 58 个指标包，并进入 `dashboard` 模式，同轮天气查询成功。该测试未故意停止喂狗，因此不代表看门狗超时复位已验证。
+- 诊断结束时显式调用 `machine.reset()`，USB 串口随后断开，设备未重新出现在主机 USB 列表。由于现场暂时不能拔插，原因尚未确定，最终自动启动、离线 3 秒切屏、断网重连与看门狗超时复位仍待真机验收；不能视为整机验收完成。
+- 另一次未传入看门狗的诊断曾出现 `WX err OSError 12` 后串口断开；后续正常启动与带看门狗诊断未再次出现该错误，其根因仍未确定，需恢复 USB 后进一步复测。
+- 真实 socket 的主机端集成验证覆盖稳态收包、模拟网卡异常后恢复，以及确定性载荷错误后继续运行；这不替代 Windows PowerShell 部署脚本和 Windows 网卡探测的实跑。
 
 ## 已知限制
 
