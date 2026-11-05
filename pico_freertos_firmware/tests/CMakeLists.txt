@@ -64,3 +64,22 @@ add_executable(test_asset_store
 # ============================================================
 
 add_test(NAME asset_store    COMMAND test_asset_store)
+
+# ------------------------------------------ task 6: display font engine
+add_executable(test_font_engine
+    test_font_engine.c
+    ../src/display/font_engine.c
+    ../src/assets/asset_store.c
+)
+
+# ------------------------------------------- task 6: display ui render
+add_executable(test_ui_render
+    test_ui_render.c
+    ../src/display/ui_render.c
+    ../src/display/font_engine.c
+    ../src/display/ui_layout.c
+    ../src/assets/asset_store.c
+)
+
+add_test(NAME font_engine    COMMAND test_font_engine)
+add_test(NAME ui_render      COMMAND test_ui_render)

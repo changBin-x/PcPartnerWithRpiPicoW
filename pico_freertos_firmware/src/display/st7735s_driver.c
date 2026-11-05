@@ -1,0 +1,261 @@
+#include "st7735s_driver.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "hardware/dma.h"
+#include "hardware/gpio.h"
+#include "hardware/regs/dreq.h"
+#include "hardware/regs/spi.h"
+#include "hardware/resets.h"
+#include "hardware/structs/spi.h"
+#include "pico/stdlib.h"
+
+/* 硬件连接：SPI0 只使用 SCK/MOSI，CS/DC/RST 由软件控制。 */
+enum {
+  kPinSck = 18,
+  kPinMosi = 19,
+  kPinCs = 16,
+  kPinDc = 17,
+  kPinRst = 20,
+};
+
+/* ST7735S 命令字。 */
+enum {
+  kCmdSoftwareReset = 0x01,
+  kCmdSleepOut = 0x11,
+  kCmdInversionOff = 0x20,
+  kCmdDisplayOn = 0x29,
+  kCmdColumnAddressSet = 0x2a,
+  kCmdRowAddressSet = 0x2b,
+  kCmdMemoryWrite = 0x2c,
+  kCmdMemoryDataAccessControl = 0x36,
+  kCmdInterfacePixelFormat = 0x3a,
+};
+
+static spi_hw_t* const kSpi = spi0_hw;
+
+static bool s_initialized = false;
+
+/* 两块 DMA 通道轮流发送，和调用方的两块切片缓冲配合形成 ping-pong。 */
+static uint s_dma_channels[2];
+static dma_channel_config s_dma_config;
+static uint s_next_dma_channel = 0;
+static uint s_last_dma_channel = 0;
+static bool s_dma_pending = false;
+
+/* 等 SPI 移位寄存器与 FIFO 都排空，之后才能安全地翻转 DC 电平。 */
+static void st7735s_wait_idle(void) {
+  while ((kSpi->sr & SPI_SSPSR_BSY_BITS) != 0) {
+    tight_loop_contents();
+  }
+  /* PL022 在接收 FIFO 满后仍继续移位，但会留下溢出标志；这里清空并复位。 */
+  while ((kSpi->sr & SPI_SSPSR_RNE_BITS) != 0) {
+    (void)kSpi->dr;
+  }
+  kSpi->icr = SPI_SSPICR_RORIC_BITS;
+}
+
+/* 小批量字节（命令与参数）走轮询；像素数据由 DMA 搬运。 */
+static void st7735s_write_bytes(const uint8_t* data, size_t length) {
+  for (size_t i = 0; i < length; ++i) {
+    while ((kSpi->sr & SPI_SSPSR_TNF_BITS) == 0) {
+      tight_loop_contents();
+    }
+    kSpi->dr = data[i];
+  }
+  st7735s_wait_idle();
+}
+
+/* 发命令：DC 低；带参数时再拉高 DC 发数据。调用前 CS 必须已拉低。 */
+static void st7735s_write_command(uint8_t command, const uint8_t* data,
+                                  size_t length) {
+  st7735s_wait_idle();
+  gpio_put(kPinDc, 0);
+  st7735s_write_bytes(&command, 1);
+  if (length > 0) {
+    gpio_put(kPinDc, 1);
+    st7735s_write_bytes(data, length);
+  }
+}
+
+static void st7735s_set_window(int x, int y, int width, int height) {
+  const uint8_t caset[4] = {0, (uint8_t)x, 0, (uint8_t)(x + width - 1)};
+  const uint8_t raset[4] = {0, (uint8_t)y, 0, (uint8_t)(y + height - 1)};
+  st7735s_write_command(kCmdColumnAddressSet, caset, sizeof(caset));
+  st7735s_write_command(kCmdRowAddressSet, raset, sizeof(raset));
+  st7735s_write_command(kCmdMemoryWrite, NULL, 0);
+}
+
+/* 上电复位时序与厂商标定的初始化寄存器序列。 */
+static void st7735s_hardware_reset(void) {
+  gpio_put(kPinCs, 1);
+  gpio_put(kPinDc, 0);
+  gpio_put(kPinRst, 1);
+  sleep_ms(5);
+  gpio_put(kPinRst, 0);
+  sleep_ms(20);
+  gpio_put(kPinRst, 1);
+  sleep_ms(120);
+}
+
+static void st7735s_send_init_sequence(void) {
+  static const uint8_t kPowerControl1[] = {0x01, 0x2c, 0x2d};
+  static const uint8_t kPowerControl3[] = {0x01, 0x2c, 0x2d, 0x01, 0x2c, 0x2d};
+  static const uint8_t kPowerControl4[] = {0x07};
+  static const uint8_t kPowerControl5[] = {0xa2, 0x02, 0x84};
+  static const uint8_t kVcomh[] = {0xc5};
+  static const uint8_t kVcoml[] = {0x0a, 0x00};
+  static const uint8_t kVdvvrh[] = {0x8a, 0x2a};
+  static const uint8_t kVdvvrl[] = {0x8a, 0xee};
+  static const uint8_t kPowerControl6[] = {0x0e};
+  static const uint8_t kMadtcl[] = {0xc8};
+  static const uint8_t kColmod[] = {0x05};
+  static const uint8_t kPositiveGamma[] = {0x02, 0x1c, 0x07, 0x12, 0x37, 0x32,
+                                           0x29, 0x2d, 0x29, 0x25, 0x2b, 0x39,
+                                           0x00, 0x01, 0x03, 0x10};
+  static const uint8_t kNegativeGamma[] = {0x03, 0x1d, 0x07, 0x06, 0x2e, 0x2c,
+                                           0x29, 0x2d, 0x2e, 0x2e, 0x37, 0x3f,
+                                           0x00, 0x00, 0x02, 0x10};
+
+  st7735s_write_command(kCmdSoftwareReset, NULL, 0);
+  sleep_ms(150);
+  st7735s_write_command(kCmdSleepOut, NULL, 0);
+  sleep_ms(120);
+
+  st7735s_write_command(0xb1, kPowerControl1, sizeof(kPowerControl1));
+  st7735s_write_command(0xb2, kPowerControl1, sizeof(kPowerControl1));
+  st7735s_write_command(0xb3, kPowerControl3, sizeof(kPowerControl3));
+  st7735s_write_command(0xb4, kPowerControl4, sizeof(kPowerControl4));
+  st7735s_write_command(0xc0, kPowerControl5, sizeof(kPowerControl5));
+  st7735s_write_command(0xc1, kVcomh, sizeof(kVcomh));
+  st7735s_write_command(0xc2, kVcoml, sizeof(kVcoml));
+  st7735s_write_command(0xc3, kVdvvrh, sizeof(kVdvvrh));
+  st7735s_write_command(0xc4, kVdvvrl, sizeof(kVdvvrl));
+  st7735s_write_command(0xc5, kPowerControl6, sizeof(kPowerControl6));
+  st7735s_write_command(kCmdInversionOff, NULL, 0);
+  st7735s_write_command(kCmdMemoryDataAccessControl, kMadtcl, sizeof(kMadtcl));
+  st7735s_write_command(kCmdInterfacePixelFormat, kColmod, sizeof(kColmod));
+  st7735s_write_command(0xe0, kPositiveGamma, sizeof(kPositiveGamma));
+  st7735s_write_command(0xe1, kNegativeGamma, sizeof(kNegativeGamma));
+  st7735s_write_command(kCmdDisplayOn, NULL, 0);
+  sleep_ms(100);
+}
+
+static bool st7735s_begin_frame(DisplayBackend* self) {
+  (void)self;
+  if (!s_initialized) {
+    return false;
+  }
+  if (s_dma_pending) {
+    dma_channel_wait_for_finish_blocking(s_last_dma_channel);
+    st7735s_wait_idle();
+    s_dma_pending = false;
+  }
+  s_next_dma_channel = 0;
+  gpio_put(kPinCs, 0);
+  return true;
+}
+
+static bool st7735s_write_slice(DisplayBackend* self, int y, int height,
+                                const uint16_t* pixels, size_t pixel_count) {
+  (void)self;
+  if (!s_initialized || pixels == NULL || y < 0 || height <= 0 ||
+      height > kDisplaySliceRows || y + height > kDisplayHeight) {
+    return false;
+  }
+  if (pixel_count != (size_t)kDisplayWidth * (size_t)height) {
+    return false;
+  }
+
+  /* 上一片仍在发送时先等它结束：SPI 是共享总线，不能同时发窗口命令。 */
+  if (s_dma_pending) {
+    dma_channel_wait_for_finish_blocking(s_last_dma_channel);
+    st7735s_wait_idle();
+    s_dma_pending = false;
+  }
+
+  st7735s_set_window(0, y, kDisplayWidth, height);
+  gpio_put(kPinDc, 1);
+
+  const uint channel = s_dma_channels[s_next_dma_channel];
+  s_next_dma_channel ^= 1u;
+  dma_channel_configure(channel, &s_dma_config, &kSpi->dr, pixels,
+                        (uint)pixel_count, true);
+  s_last_dma_channel = channel;
+  s_dma_pending = true;
+  return true;
+}
+
+static void st7735s_end_frame(DisplayBackend* self) {
+  (void)self;
+  if (s_dma_pending) {
+    dma_channel_wait_for_finish_blocking(s_last_dma_channel);
+    st7735s_wait_idle();
+    s_dma_pending = false;
+  }
+  gpio_put(kPinDc, 0);
+  gpio_put(kPinCs, 1);
+}
+
+static DisplayBackend s_backend = {
+    .name = "st7735s",
+    .begin_frame = st7735s_begin_frame,
+    .write_slice = st7735s_write_slice,
+    .end_frame = st7735s_end_frame,
+    .context = NULL,
+};
+
+/* 直接配置 PL022 寄存器：本工程没有链接 hardware_spi，只需要主机 8 位模式。
+ * clk_peri 默认 125MHz，CPSR=2 得到 62.5MHz。 */
+static void st7735s_spi_init(void) {
+  reset_block(RESETS_RESET_SPI0_BITS);
+  unreset_block_wait(RESETS_RESET_SPI0_BITS);
+
+  kSpi->cr1 = 0;
+  kSpi->cr0 = (0u << SPI_SSPCR0_SCR_LSB) | (0u << SPI_SSPCR0_SPH_LSB) |
+              (0u << SPI_SSPCR0_SPO_LSB) | (0u << SPI_SSPCR0_FRF_LSB) |
+              ((uint32_t)(8 - 1) << SPI_SSPCR0_DSS_LSB);
+  kSpi->cpsr = 2;
+  kSpi->dmacr = SPI_SSPDMACR_TXDMAE_BITS;
+  kSpi->cr1 = SPI_SSPCR1_SSE_BITS;
+}
+
+bool st7735s_init(void) {
+  if (s_initialized) {
+    return true;
+  }
+
+  /* 两块通道必须成对申请：单通道无法让“发当前片”与“准备下一片”重叠。 */
+  s_dma_channels[0] = dma_claim_unused_channel(true);
+  s_dma_channels[1] = dma_claim_unused_channel(true);
+  s_dma_config = dma_channel_get_default_config(s_dma_channels[0]);
+  channel_config_set_transfer_data_size(&s_dma_config, DMA_SIZE_16);
+  channel_config_set_read_increment(&s_dma_config, true);
+  channel_config_set_write_increment(&s_dma_config, false);
+  channel_config_set_dreq(&s_dma_config, DREQ_SPI0_TX);
+
+  gpio_init(kPinCs);
+  gpio_set_dir(kPinCs, GPIO_OUT);
+  gpio_put(kPinCs, 1);
+  gpio_init(kPinDc);
+  gpio_set_dir(kPinDc, GPIO_OUT);
+  gpio_put(kPinDc, 0);
+  gpio_init(kPinRst);
+  gpio_set_dir(kPinRst, GPIO_OUT);
+  gpio_put(kPinRst, 1);
+
+  gpio_set_function(kPinSck, GPIO_FUNC_SPI);
+  gpio_set_function(kPinMosi, GPIO_FUNC_SPI);
+  st7735s_spi_init();
+
+  st7735s_hardware_reset();
+  gpio_put(kPinCs, 0);
+  st7735s_send_init_sequence();
+  gpio_put(kPinCs, 1);
+
+  s_initialized = true;
+  return true;
+}
+
+DisplayBackend* st7735s_backend(void) { return &s_backend; }
