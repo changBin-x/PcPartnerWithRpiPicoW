@@ -70,6 +70,25 @@ target_include_directories(test_protocol_conformance PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
 )
 
+# --------------------------------------------------- 网络：Wi-Fi 退避
+add_executable(test_wifi_manager
+    test_wifi_manager.c
+    ../src/network/wifi_manager.c
+)
+
+# --------------------------------------------------- 网络：NTP 时间换算
+add_executable(test_ntp_service
+    test_ntp_service.c
+    ../src/services/ntp_service.c
+)
+
+# --------------------------------------------------- 网络：天气响应解析
+add_executable(test_weather_service
+    test_weather_service.c
+    ../src/services/weather_service.c
+)
+target_link_libraries(test_weather_service cjson_lib)
+
 # ============================================================
 # 后续任务的测试目标请追加到本行之前，并在下面补 add_test。
 # ============================================================
@@ -84,7 +103,6 @@ add_test(NAME supervisor_monitor COMMAND test_supervisor_monitor)
 
 add_test(NAME asset_store    COMMAND test_asset_store)
 add_test(NAME protocol_conformance COMMAND test_protocol_conformance)
-
 # ------------------------------------------ task 6: display font engine
 add_executable(test_font_engine
     test_font_engine.c
@@ -103,3 +121,6 @@ add_executable(test_ui_render
 
 add_test(NAME font_engine    COMMAND test_font_engine)
 add_test(NAME ui_render      COMMAND test_ui_render)
+add_test(NAME wifi_manager    COMMAND test_wifi_manager)
+add_test(NAME ntp_service     COMMAND test_ntp_service)
+add_test(NAME weather_service COMMAND test_weather_service)
