@@ -17,6 +17,8 @@
 
 #include "system_state.h"
 
+#include "asset_store.h"
+
 /* 心跳任务参数。 */
 enum {
   kHeartbeatPeriodMs = 1000,
@@ -148,6 +150,12 @@ void vApplicationGetTimerTaskMemory(
 int main(void) {
   stdio_init_all();
   system_state_init();
+
+  /* 字模、农历表与根证书都以 const 数据的形式链接在 Flash 里，这里只登记
+   * 指针；失败说明构建产物缺少资源段，属于不可恢复的构建错误。 */
+  if (!asset_store_init()) {
+    panic("只读资源初始化失败");
+  }
 
   start_heartbeat_task(&kCore0Heartbeat);
   start_heartbeat_task(&kCore1Heartbeat);

@@ -52,3 +52,15 @@ add_test(NAME system_state   COMMAND test_system_state)
 add_test(NAME metrics_parser COMMAND test_metrics_parser)
 add_test(NAME lunar_service  COMMAND test_lunar_service)
 add_test(NAME ui_layout      COMMAND test_ui_layout)
+
+# ----------------------------------------------- lead: asset store
+add_executable(test_asset_store
+    test_asset_store.c
+    ../src/assets/asset_store.c
+)
+
+# ============================================================
+# 后续任务的测试目标请追加到本行之前，并在下面补 add_test。
+# ============================================================
+
+add_test(NAME asset_store    COMMAND test_asset_store)

@@ -75,7 +75,65 @@ target_include_directories(cjson_lib PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/tests/cjson)
 target_compile_options(cjson_lib PRIVATE -w)
 
-add_executable(pico_status_screen ${FIRMWARE_SOURCES})
+# ---------------------------------------------------------------------------
+# 只读资源（字模、农历表、根证书）
+# ---------------------------------------------------------------------------
+# 资源不复制进本目录，直接引用仓库根 pico/ 下已有的文件，保证 Python 参考
+# 实现与固件读到的是同一份数据。用 objcopy 转成 .rodata 段链接进 Flash：
+# 资源全部是 const，不占 RAM，也不需要手写几万行的 C 数组。
+#
+# 符号名由输入文件名派生，例如 font_cn.bin -> _binary_font_cn_bin_start/_end，
+# 所以 objcopy 必须在资源所在目录里以「纯文件名」为参数执行。
+set(ASSET_DIR ${CMAKE_CURRENT_LIST_DIR}/../pico)
+if (NOT EXISTS ${ASSET_DIR}/font_cn.bin)
+  message(FATAL_ERROR "缺少资源目录 ${ASSET_DIR}（font_cn.bin 等）")
+endif ()
+
+set(ASSET_OBJECTS "")
+find_program(PYTHON3_EXECUTABLE NAMES python3)
+if (NOT PYTHON3_EXECUTABLE)
+  message(FATAL_ERROR "需要 python3 为资源文件追加结尾 NUL 字节")
+endif ()
+
+function(embed_asset asset_name)
+  set(asset_file ${ASSET_DIR}/${asset_name})
+  if (NOT EXISTS ${asset_file})
+    message(FATAL_ERROR "缺少资源文件 ${asset_file}")
+  endif ()
+  # 资源内容原样嵌入，但额外追加一个 NUL 字节：这样 text[size] 恒为 '\0'，
+  # 既可以把 PEM 证书直接当 C 字符串交给 mbedTLS，也能让宿主端与设备端的
+  # 缓冲区约定完全一致（size 不含该字节）。
+  set(staged_dir ${CMAKE_CURRENT_BINARY_DIR}/assets_src)
+  set(staged_file ${staged_dir}/${asset_name})
+  set(object_file ${CMAKE_CURRENT_BINARY_DIR}/assets/${asset_name}.o)
+  # 暂存目录必须在配置期就存在：构建命令以它为工作目录，而 ninja 会在执行
+  # 命令之前先 cd 进去，靠命令里的 make_directory 就太晚了。
+  file(MAKE_DIRECTORY ${staged_dir} ${CMAKE_CURRENT_BINARY_DIR}/assets)
+  add_custom_command(
+      OUTPUT ${object_file}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${staged_dir}
+                        ${CMAKE_CURRENT_BINARY_DIR}/assets
+      COMMAND ${PYTHON3_EXECUTABLE} ${ASSET_DIR}/../tools/pad_asset_nul.py
+              ${asset_file} ${staged_file}
+      # 符号名由输入文件名派生，因此必须在暂存目录里以纯文件名调用 objcopy，
+      # 否则符号会变成 _binary__home_bean_..._start 这种不可用的名字。
+      COMMAND ${CMAKE_OBJCOPY} -I binary -O elf32-littlearm -B arm
+              --rename-section .data=.rodata,alloc,load,readonly,data,contents
+              ${asset_name} ${object_file}
+      WORKING_DIRECTORY ${staged_dir}
+      DEPENDS ${asset_file}
+              ${ASSET_DIR}/../tools/pad_asset_nul.py
+      COMMENT "嵌入资源 ${asset_name}"
+      VERBATIM)
+  set(ASSET_OBJECTS ${ASSET_OBJECTS} ${object_file} PARENT_SCOPE)
+endfunction()
+
+embed_asset(font_cn.bin)
+embed_asset(lunar_table.bin)
+embed_asset(amap_root_ca.pem)
+embed_asset(hko_root_ca.pem)
+
+add_executable(pico_status_screen ${FIRMWARE_SOURCES} ${ASSET_OBJECTS})
 
 target_include_directories(pico_status_screen PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
