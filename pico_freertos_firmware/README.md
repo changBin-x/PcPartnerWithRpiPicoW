@@ -173,6 +173,26 @@ ctest --test-dir build --output-on-failure
 python3 tools/verify_udp_end_to_end.py
 ```
 
+## 任务与调度
+
+| 任务 | 绑核 | 优先级 | 栈 | 节奏 |
+| --- | --- | --- | --- | --- |
+| `udp_listener` | 0 | 4 | 4 KB | 阻塞等队列，收到即解析 |
+| `supervisor` | 0 | 3 | 2 KB | 1000 ms 检查签到并喂狗 |
+| `vTaskUIRender` | **1** | 3 | 2 KB | 20 ms 取快照并画脏区 |
+| `wifi_manager` | 0 | 2 | 4 KB | 事件驱动，掉线按 1/3/10/30 s 退避 |
+| `ntp_service` | 0 | 2 | 4 KB | 每秒推进软时钟，6 小时同步一次 |
+| `heartbeat_core0` | 0 | 2 | 2 KB | 1000 ms 签到，30 秒打一行日志 |
+| `heartbeat_core1` | **1** | 2 | 2 KB | 同上 |
+| `weather_service` | 0 | 1 | 16 KB | 30 分钟刷新；TLS 握手吃栈 |
+| `tcpip_thread` | 0 | lwIP 内部 | 8 KB | lwIP 协议栈 |
+| 定时器守护 | 任选 | 2 | 1 KB | FreeRTOS 软件定时器 |
+
+与设计规格的偏差：显示任务栈由规格的 10 KB 降到 2 KB（渲染全程只用两块静态
+切片缓冲，栈上不放大数组）；Wi-Fi/UDP/NTP 由规格的各 4 KB 保持不变；天气任务
+16 KB 与规格一致。堆从规格的 80 KB 提到 96 KB，理由是 TLS 握手还要动态申请
+4~8 KB，而 SRAM 尚有 100 KB 从未被使用。
+
 ## 资源占用（实测）
 
 | 项目 | 数值 |
