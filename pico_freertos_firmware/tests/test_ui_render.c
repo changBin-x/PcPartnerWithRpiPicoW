@@ -15,6 +15,7 @@ enum {
   kFramebufferPixels = kDisplayWidth * kDisplayHeight,
   kTestBackground = 0x1083,
   kTestSurface = 0x1904,
+  kTestSurfaceHigh = 0x2945,
   kTestTrack = 0x31a7,
   kTestText = 0xe71d,
   kTestMuted = 0x9493,
@@ -332,13 +333,24 @@ static void test_clock(void) {
   /* 大号数字区域必须有足够多的 PRIMARY 像素。 */
   assert(count_region_color(memory.framebuffer, 0, 30, 128, 40, kTestPrimary) >
          150);
-  /* 天气与日期文本也不应为空。 */
-  assert(count_region_non_background(memory.framebuffer, 6, 5, 116, 14,
+  /* 天气胶囊位于顶栏图标下方，文字不应为空。 */
+  assert(count_region_non_background(memory.framebuffer, 8, 15, 112, 14,
                                      kTestSurface) > 10);
-  assert(count_region_non_background(memory.framebuffer, 6, 83, 116, 14,
+  /* 日期、星期胶囊、农历三行都要有内容。 */
+  assert(count_region_non_background(memory.framebuffer, 6, 77, 116, 14,
                                      kTestSurface) > 10);
-  assert(count_region_non_background(memory.framebuffer, 6, 102, 116, 14,
+  assert(count_region_non_background(memory.framebuffer, 36, 96, 56, 14,
+                                     kTestSurfaceHigh) > 10);
+  assert(count_region_non_background(memory.framebuffer, 6, 115, 116, 14,
                                      kTestSurface) > 10);
+  /* 日历卡必须铺到 y=150，底部不能是空白背景。 */
+  assert(count_region_color(memory.framebuffer, 4, 140, 120, 9, kTestSurface) >
+         900);
+  /* 时钟页只画 WiFi 图标，不画 PC 图标。 */
+  assert(count_region_color(memory.framebuffer, 108, 0, 16, 14, kTestPrimary) >
+         10);
+  assert(count_region_non_background(memory.framebuffer, 4, 0, 16, 14,
+                                     kTestBackground) == 0);
   assert(write_ppm("/tmp/ui_clock.ppm", memory.framebuffer));
   assert_guards(&memory);
 }
@@ -354,11 +366,63 @@ static void test_clock_without_time(void) {
   assert(ui_render_draw_frame(&memory.backend, &snapshot));
   assert(count_region_color(memory.framebuffer, 0, 30, 128, 40, kTestPrimary) ==
          0);
-  assert(count_region_non_background(memory.framebuffer, 6, 5, 116, 14,
+  /* 未同步时仍然有时间占位、天气占位与骨架胶囊。 */
+  assert(count_region_non_background(memory.framebuffer, 0, 30, 128, 40,
                                      kTestSurface) > 10);
-  assert(count_region_non_background(memory.framebuffer, 6, 93, 116, 14,
+  assert(count_region_non_background(memory.framebuffer, 8, 15, 112, 14,
                                      kTestSurface) > 10);
+  assert(count_region_non_background(memory.framebuffer, 24, 94, 80, 20,
+                                     kTestSurfaceHigh) > 10);
+  assert(write_ppm("/tmp/ui_clock_no_time.ppm", memory.framebuffer));
   assert_guards(&memory);
+}
+
+static void test_clock_dirty_extras(void) {
+  SystemSnapshot previous = make_clock();
+  SystemSnapshot current = previous;
+  UiRect rects[8];
+
+  assert(ui_render_collect_dirty_regions(&previous, &current, rects, 8) == 0);
+
+  current.wifi_connected = false;
+  int count = ui_render_collect_dirty_regions(&previous, &current, rects, 8);
+  assert(count == 1);
+  assert(rects[0].x == 0 && rects[0].y == 0 && rects[0].w == kUiScreenWidth &&
+         rects[0].h == kDisplaySliceRows);
+
+  current = previous;
+  current.clock.day = 7;
+  snprintf(current.lunar.lunar_md, sizeof(current.lunar.lunar_md), "%s",
+           "十月初八");
+  count = ui_render_collect_dirty_regions(&previous, &current, rects, 8);
+  assert(count == 2);
+  bool found_card = false;
+  for (int i = 0; i < count; ++i) {
+    if (rects[i].x == 4 && rects[i].y == 70 && rects[i].w == 120 &&
+        rects[i].h == 80) {
+      found_card = true;
+    }
+  }
+  assert(found_card);
+
+  current = previous;
+  current.clock.time_synced = false;
+  count = ui_render_collect_dirty_regions(&previous, &current, rects, 8);
+  assert(count == 2);
+  bool found_time_card = false;
+  found_card = false;
+  for (int i = 0; i < count; ++i) {
+    if (rects[i].x == 4 && rects[i].y == 30 && rects[i].w == 120 &&
+        rects[i].h == 40) {
+      found_time_card = true;
+    }
+    if (rects[i].x == 4 && rects[i].y == 70 && rects[i].w == 120 &&
+        rects[i].h == 80) {
+      found_card = true;
+    }
+  }
+  assert(found_time_card);
+  assert(found_card);
 }
 
 int main(void) {
@@ -374,5 +438,6 @@ int main(void) {
   test_clipped_dirty_rect();
   test_clock();
   test_clock_without_time();
+  test_clock_dirty_extras();
   return 0;
 }

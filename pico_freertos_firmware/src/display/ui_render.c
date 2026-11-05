@@ -20,6 +20,7 @@
 enum {
   kColorBackground = 0x1083,
   kColorSurface = 0x1904,
+  kColorSurfaceHigh = 0x2945,
   kColorTrack = 0x31a7,
   kColorText = 0xe71d,
   kColorMuted = 0x9493,
@@ -32,6 +33,7 @@ enum {
 /* 与 ui_layout.c 的脏矩形坐标对齐的排版参数。 */
 enum {
   kTopBarIconY = 1,
+  kClockIconY = 0,
   kPcIconX = 4,
   kWifiIconX = 108,
   kIconWidth = 16,
@@ -57,22 +59,31 @@ enum {
   kNetworkValueX = 28,
 
   kWeatherCardX = 4,
-  kWeatherCardY = 2,
+  kWeatherCardY = 14,
   kWeatherCardWidth = 120,
-  kWeatherCardHeight = 21,
-  kWeatherTextY = 5,
+  kWeatherCardHeight = 15,
+  kWeatherTextY = 15,
   kClockCardX = 4,
   kClockCardY = 30,
   kClockCardWidth = 120,
   kClockCardHeight = 40,
   kClockTextY = 37,
   kDateCardX = 4,
-  kDateCardY = 75,
+  kDateCardY = 70,
   kDateCardWidth = 120,
-  kDateCardHeight = 50,
-  kDateLine1Y = 83,
-  kDateLine2Y = 102,
-  kSyncTextY = 93,
+  kDateCardHeight = 80,
+  kDateTextY = 77,
+  kWeekdayCardX = 36,
+  kWeekdayCardY = 94,
+  kWeekdayCardWidth = 56,
+  kWeekdayCardHeight = 18,
+  kWeekdayTextY = 96,
+  kLunarTextY = 115,
+  kSyncCardX = 24,
+  kSyncCardY = 94,
+  kSyncCardWidth = 80,
+  kSyncCardHeight = 20,
+  kSyncTextY = 97,
 
   kSliceCount = kDisplayHeight / kDisplaySliceRows,
   kMaxDirtyRects = 8,
@@ -277,11 +288,23 @@ static void render_dashboard(uint16_t* pixels, int origin_y,
   render_network(pixels, origin_y, snapshot);
 }
 
+static void render_clock_header(uint16_t* pixels, int origin_y,
+                                const SystemSnapshot* snapshot) {
+  /* 时钟页只画 WiFi 图标；仪表盘才同时画 PC 与 WiFi。 */
+  FontSurface surface = make_surface(pixels, origin_y);
+  const uint16_t wifi_color =
+      snapshot->wifi_connected ? kColorPrimary : kColorError;
+  font_engine_draw_glyph(&surface, kWifiIconX, kClockIconY, kIconWifi,
+                         kIconWidth, kIconHeight, wifi_color, kColorBackground);
+}
+
 static void render_clock(uint16_t* pixels, int origin_y,
                          const SystemSnapshot* snapshot) {
   FontSurface surface = make_surface(pixels, origin_y);
 
-  /* 天气胶囊。 */
+  render_clock_header(pixels, origin_y, snapshot);
+
+  /* 天气胶囊：与参考实现一致，位于顶栏图标下方。 */
   draw_card(pixels, origin_y, kWeatherCardX, kWeatherCardY, kWeatherCardWidth,
             kWeatherCardHeight, kColorSurface);
   char weather_text[64];
@@ -299,8 +322,8 @@ static void render_clock(uint16_t* pixels, int origin_y,
     weather_color = kColorMuted;
   }
   int weather_x = (kUiScreenWidth - font_engine_text_width(weather_text)) / 2;
-  if (weather_x < 6) {
-    weather_x = 6;
+  if (weather_x < 8) {
+    weather_x = 8;
   }
   font_engine_draw_text(&surface, weather_x, kWeatherTextY, weather_text,
                         weather_color, kColorSurface);
@@ -324,30 +347,37 @@ static void render_clock(uint16_t* pixels, int origin_y,
                        kColorSurface);
   }
 
-  /* 日期 + 农历卡片。 */
+  /* 复合日历大卡片：日期、星期胶囊、农历。 */
   draw_card(pixels, origin_y, kDateCardX, kDateCardY, kDateCardWidth,
             kDateCardHeight, kColorSurface);
   if (snapshot->clock.time_synced) {
+    char date_text[32];
+    snprintf(date_text, sizeof(date_text), "%d月%02d日", snapshot->clock.month,
+             snapshot->clock.day);
+    draw_centered_text(pixels, origin_y, kDateTextY, date_text, kColorText,
+                       kColorSurface);
+
+    draw_card(pixels, origin_y, kWeekdayCardX, kWeekdayCardY, kWeekdayCardWidth,
+              kWeekdayCardHeight, kColorSurfaceHigh);
     const int weekday = snapshot->clock.weekday;
     const char* weekday_name =
         (weekday >= 0 && weekday < 7) ? kWeekdayNames[weekday] : "周?";
-    char date_text[64];
-    snprintf(date_text, sizeof(date_text), "%d月%02d日 %s",
-             snapshot->clock.month, snapshot->clock.day, weekday_name);
-    draw_centered_text(pixels, origin_y, kDateLine1Y, date_text, kColorText,
-                       kColorSurface);
+    draw_centered_text(pixels, origin_y, kWeekdayTextY, weekday_name,
+                       kColorSecondary, kColorSurfaceHigh);
 
     if (snapshot->lunar.valid && snapshot->lunar.gz_year[0] != '\0' &&
         snapshot->lunar.lunar_md[0] != '\0') {
       char lunar_text[40];
       snprintf(lunar_text, sizeof(lunar_text), "%s %s", snapshot->lunar.gz_year,
                snapshot->lunar.lunar_md);
-      draw_centered_text(pixels, origin_y, kDateLine2Y, lunar_text, kColorMuted,
-                         kColorSurface);
+      draw_centered_text(pixels, origin_y, kLunarTextY, lunar_text,
+                         kColorTertiary, kColorSurface);
     }
   } else {
-    draw_centered_text(pixels, origin_y, kSyncTextY, "时间同步中", kColorMuted,
-                       kColorSurface);
+    draw_card(pixels, origin_y, kSyncCardX, kSyncCardY, kSyncCardWidth,
+              kSyncCardHeight, kColorSurfaceHigh);
+    draw_centered_text(pixels, origin_y, kSyncTextY, "时间同步中",
+                       kColorSecondary, kColorSurfaceHigh);
   }
 }
 
@@ -418,6 +448,57 @@ bool ui_render_draw_dirty(DisplayBackend* backend,
   return ok;
 }
 
+static void append_dirty_rect(UiRect* rects, int* count, int max_rects, int x,
+                              int y, int width, int height) {
+  if (*count >= max_rects) {
+    return;
+  }
+  rects[*count].x = (int16_t)x;
+  rects[*count].y = (int16_t)y;
+  rects[*count].w = (int16_t)width;
+  rects[*count].h = (int16_t)height;
+  ++*count;
+}
+
+int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
+                                    const SystemSnapshot* current,
+                                    UiRect* out_rects, int max_rects) {
+  if (previous == NULL || current == NULL || out_rects == NULL ||
+      max_rects <= 0) {
+    return 0;
+  }
+
+  int count = ui_layout_calculate_dirty_regions(previous, current, out_rects,
+                                                max_rects);
+  if (current->ui_mode == kUiModeClock &&
+      previous->wifi_connected != current->wifi_connected) {
+    /* 时钟页顶栏图标不在 ui_layout 的契约里，WiFi 变化时自行补一条。 */
+    append_dirty_rect(out_rects, &count, max_rects, 0, 0, kUiScreenWidth,
+                      kDisplaySliceRows);
+  }
+
+  const bool time_state_changed =
+      previous->clock.time_synced != current->clock.time_synced;
+  if (current->ui_mode == kUiModeClock && time_state_changed) {
+    /* 同步状态切换时，大号时间与骨架占位需要整块重绘。 */
+    append_dirty_rect(out_rects, &count, max_rects, kClockCardX, kClockCardY,
+                      kClockCardWidth, kClockCardHeight);
+  }
+  bool card_dirty = time_state_changed;
+  for (int i = 0; i < count; ++i) {
+    if (out_rects[i].y >= kDateCardY) {
+      card_dirty = true;
+      break;
+    }
+  }
+  if (current->ui_mode == kUiModeClock && card_dirty) {
+    /* ui_layout 的日期脏区只到 y=125，而日历卡铺到 y=150，补整卡。 */
+    append_dirty_rect(out_rects, &count, max_rects, kDateCardX, kDateCardY,
+                      kDateCardWidth, kDateCardHeight);
+  }
+  return count;
+}
+
 bool ui_render_draw_frame(DisplayBackend* backend,
                           const SystemSnapshot* snapshot) {
   const UiRect full_screen = {0, 0, kUiScreenWidth, kUiScreenHeight};
@@ -445,7 +526,7 @@ static void vTaskUIRender(void* context) {
     SystemSnapshot current;
     system_state_get_snapshot(&current);
     UiRect dirty_rects[kMaxDirtyRects];
-    const int dirty_count = ui_layout_calculate_dirty_regions(
+    const int dirty_count = ui_render_collect_dirty_regions(
         &previous, &current, dirty_rects, kMaxDirtyRects);
     if (dirty_count > 0) {
       ui_render_draw_dirty(backend, &current, dirty_rects, dirty_count);
