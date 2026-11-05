@@ -548,8 +548,4 @@ void ui_render_start_task(void) {
   }
 }
 
-/* main.c 暂未接线；把入口指针放进链接脚本 KEEP 的 .init_array，
- * 防止 --gc-sections 把 vTaskUIRender 与整个显示链路回收。 */
-static void (*const s_ui_render_retain)(void)
-    __attribute__((used, section(".init_array"))) = ui_render_start_task;
 #endif /* PICO_ON_DEVICE */
