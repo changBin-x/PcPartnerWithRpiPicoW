@@ -6,9 +6,7 @@
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/regs/dreq.h"
-#include "hardware/regs/spi.h"
-#include "hardware/resets.h"
-#include "hardware/structs/spi.h"
+#include "hardware/spi.h"
 #include "pico/stdlib.h"
 
 /* 硬件连接：SPI0 只使用 SCK/MOSI，CS/DC/RST 由软件控制。 */
@@ -33,7 +31,7 @@ enum {
   kCmdInterfacePixelFormat = 0x3a,
 };
 
-static spi_hw_t* const kSpi = spi0_hw;
+static spi_inst_t* const kSpi = spi0;
 
 static bool s_initialized = false;
 
@@ -46,24 +44,15 @@ static bool s_dma_pending = false;
 
 /* 等 SPI 移位寄存器与 FIFO 都排空，之后才能安全地翻转 DC 电平。 */
 static void st7735s_wait_idle(void) {
-  while ((kSpi->sr & SPI_SSPSR_BSY_BITS) != 0) {
+  while (spi_is_busy(kSpi)) {
     tight_loop_contents();
   }
-  /* PL022 在接收 FIFO 满后仍继续移位，但会留下溢出标志；这里清空并复位。 */
-  while ((kSpi->sr & SPI_SSPSR_RNE_BITS) != 0) {
-    (void)kSpi->dr;
-  }
-  kSpi->icr = SPI_SSPICR_RORIC_BITS;
 }
 
-/* 小批量字节（命令与参数）走轮询；像素数据由 DMA 搬运。 */
+/* 小批量字节（命令与参数）走轮询；像素数据由 DMA 搬运。
+ * spi_write_blocking 负责排空接收 FIFO 并清掉 PL022 的溢出标志。 */
 static void st7735s_write_bytes(const uint8_t* data, size_t length) {
-  for (size_t i = 0; i < length; ++i) {
-    while ((kSpi->sr & SPI_SSPSR_TNF_BITS) == 0) {
-      tight_loop_contents();
-    }
-    kSpi->dr = data[i];
-  }
+  spi_write_blocking(kSpi, data, length);
   st7735s_wait_idle();
 }
 
@@ -180,7 +169,7 @@ static bool st7735s_write_slice(DisplayBackend* self, int y, int height,
 
   const uint channel = s_dma_channels[s_next_dma_channel];
   s_next_dma_channel ^= 1u;
-  dma_channel_configure(channel, &s_dma_config, &kSpi->dr, pixels,
+  dma_channel_configure(channel, &s_dma_config, &spi_get_hw(kSpi)->dr, pixels,
                         (uint)pixel_count, true);
   s_last_dma_channel = channel;
   s_dma_pending = true;
@@ -205,21 +194,6 @@ static DisplayBackend s_backend = {
     .end_frame = st7735s_end_frame,
     .context = NULL,
 };
-
-/* 直接配置 PL022 寄存器：本工程没有链接 hardware_spi，只需要主机 8 位模式。
- * clk_peri 默认 125MHz，CPSR=2 得到 62.5MHz。 */
-static void st7735s_spi_init(void) {
-  reset_block(RESETS_RESET_SPI0_BITS);
-  unreset_block_wait(RESETS_RESET_SPI0_BITS);
-
-  kSpi->cr1 = 0;
-  kSpi->cr0 = (0u << SPI_SSPCR0_SCR_LSB) | (0u << SPI_SSPCR0_SPH_LSB) |
-              (0u << SPI_SSPCR0_SPO_LSB) | (0u << SPI_SSPCR0_FRF_LSB) |
-              ((uint32_t)(8 - 1) << SPI_SSPCR0_DSS_LSB);
-  kSpi->cpsr = 2;
-  kSpi->dmacr = SPI_SSPDMACR_TXDMAE_BITS;
-  kSpi->cr1 = SPI_SSPCR1_SSE_BITS;
-}
 
 bool st7735s_init(void) {
   if (s_initialized) {
@@ -247,7 +221,8 @@ bool st7735s_init(void) {
 
   gpio_set_function(kPinSck, GPIO_FUNC_SPI);
   gpio_set_function(kPinMosi, GPIO_FUNC_SPI);
-  st7735s_spi_init();
+  /* spi_init 内部按 clk_peri 计算分频，并设置 8 位/CPOL=0/CPHA=0/MSB。 */
+  spi_init(kSpi, 62500000);
 
   st7735s_hardware_reset();
   gpio_put(kPinCs, 0);

@@ -21,6 +21,12 @@ bool ui_render_draw_dirty(DisplayBackend* backend,
                           const SystemSnapshot* snapshot, const UiRect* rects,
                           int rect_count);
 
+/* 在 ui_layout 的脏矩形基础上，补齐时钟页顶栏 WiFi 图标与整张日历卡。
+ * 纯函数，宿主测试可直接调用。 */
+int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
+                                    const SystemSnapshot* current,
+                                    UiRect* out_rects, int max_rects);
+
 /* 创建并绑定到 Core 1 的渲染任务 vTaskUIRender。
  * main.c 目前尚未调用本入口，但函数本身已编译进镜像。 */
 void ui_render_start_task(void);
