@@ -1,11 +1,13 @@
-/*
- * Strict parser for the UDP metrics JSON protocol (protocol version 1).
+/**
+ * @file metrics_parser.c
+ * @brief UDP 指标 JSON 协议（协议版本 1）的严格校验解析器。
  *
- * Expected payload (all 8 fields mandatory, "gpu" may be null):
- *   {"v":1,"seq":1,"ts":1700000000,"cpu":25.4,"gpu":48.0,"ram":65.2,"rx":10.5,"tx":2.1}
+ * 期望载荷（8 个字段全部必填，"gpu" 允许为 null）：
+ *   {"v":1,"seq":1,"ts":1700000000,"cpu":25.4,
+ *    "gpu":48.0,"ram":65.2,"rx":10.5,"tx":2.1}
  *
- * The parser is intentionally strict: unknown versions, missing fields,
- * out-of-range values and non-monotonic sequence numbers are rejected.
+ * 解析策略刻意从严：协议版本未知、字段缺失、数值越界、序号非递增的
+ * 报文一律拒绝。
  */
 
 #include "metrics_parser.h"
@@ -14,25 +16,25 @@
 
 #include "cJSON.h"
 
-/* Protocol version understood by this parser. */
+/* 本解析器支持的协议版本。 */
 #define kMetricsProtocolVersion 1
 
-/* Inclusive float range accepted for percentage-like fields. */
+/* 百分比类字段可接受的闭区间浮点范围。 */
 #define kMetricsPercentMin 0.0
 #define kMetricsPercentMax 100.0
 
-/* Inclusive upper bound of uint32_t, as a double. */
+/* uint32_t 的闭区间上界，以 double 表示。 */
 #define kMetricsUint32MaxD 4294967295.0
 
-/* Return true when `value` is inside [min, max]; false also for NaN. */
+/* value 落在 [min, max] 内返回 true；NaN 也返回 false。 */
 static bool value_in_range(double value, double min, double max) {
   return (value >= min) && (value <= max);
 }
 
 /*
- * Read a strictly non-negative integer JSON value into a uint32_t.
- * Rejects missing items, non-numbers, fractional values and values that
- * do not fit into uint32_t (so the double -> uint32_t conversion is safe).
+ * 把严格非负的整型 JSON 值读入 uint32_t。
+ * 拒绝缺失项、非数字、小数值，以及超出 uint32_t 表示范围的值
+ * （从而保证 double -> uint32_t 的转换安全）。
  */
 static bool read_uint32(const cJSON* item, uint32_t* out_value) {
   double value;
@@ -46,7 +48,7 @@ static bool read_uint32(const cJSON* item, uint32_t* out_value) {
     return false;
   }
 
-  /* Integer fields must not silently truncate, e.g. seq 1.9 -> 1. */
+  /* 整型字段不允许静默截断，例如 seq 1.9 变成 1。 */
   if ((double)(uint32_t)value != value) {
     return false;
   }
@@ -55,7 +57,7 @@ static bool read_uint32(const cJSON* item, uint32_t* out_value) {
   return true;
 }
 
-/* Read a required number into a float when it lies inside [0, 100]. */
+/* 读取必填数值并写入 float，要求落在 [0, 100] 内。 */
 static bool read_percent(const cJSON* item, float* out_value) {
   double value;
 
@@ -73,9 +75,8 @@ static bool read_percent(const cJSON* item, float* out_value) {
 }
 
 /*
- * Read a required non-negative number (bit rate) into a float.
- * FLT_MAX keeps the float conversion from overflowing to +infinity and
- * also rejects NaN.
+ * 读取必填的非负数值（bit rate）并写入 float。
+ * 以 FLT_MAX 为上界，避免 float 转换溢出成 +infinity，同时拒绝 NaN。
  */
 static bool read_mbps(const cJSON* item, float* out_value) {
   double value;
@@ -139,7 +140,7 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
   item_rx = cJSON_GetObjectItemCaseSensitive(root, "rx");
   item_tx = cJSON_GetObjectItemCaseSensitive(root, "tx");
 
-  /* All eight protocol v1 fields must be present (gpu may be JSON null). */
+  /* 协议 v1 的 8 个字段必须齐全（gpu 允许为 JSON null）。 */
   if ((item_v == NULL) || (item_seq == NULL) || (item_ts == NULL) ||
       (item_cpu == NULL) || (item_gpu == NULL) || (item_ram == NULL) ||
       (item_rx == NULL) || (item_tx == NULL)) {
@@ -147,7 +148,7 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
     goto cleanup;
   }
 
-  /* v must be exactly the supported protocol version. */
+  /* v 必须精确等于受支持的协议版本。 */
   if (!cJSON_IsNumber(item_v) ||
       (cJSON_GetNumberValue(item_v) != (double)kMetricsProtocolVersion)) {
     result = kMetricsErrInvalidVersion;
@@ -159,7 +160,7 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
     goto cleanup;
   }
 
-  /* Drop duplicate/out-of-order datagrams before touching any other field. */
+  /* 在读取其他任何字段之前，先丢弃重复或乱序到达的报文。 */
   if (parser->has_last_seq && (seq <= parser->last_seq)) {
     result = kMetricsErrStaleSeq;
     goto cleanup;
@@ -204,7 +205,7 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
   parsed.seq = seq;
   parsed.ts = ts;
 
-  /* Publish only after the whole datagram validated. */
+  /* 整条报文校验通过后才对外发布结果。 */
   *out_data = parsed;
   parser->last_seq = seq;
   parser->has_last_seq = true;

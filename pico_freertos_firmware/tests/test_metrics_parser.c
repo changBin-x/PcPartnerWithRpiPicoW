@@ -1,9 +1,9 @@
-/*
- * Host unit tests for the strict UDP metrics JSON parser (protocol v1).
+/**
+ * @file test_metrics_parser.c
+ * @brief UDP 指标 JSON 严格解析器（协议 v1）的主机端单元测试。
  *
- * The parser is stateful (it remembers the last accepted seq), therefore the
- * test cases below run in the documented order and every failing case also
- * asserts that the parser state did not advance.
+ * 解析器是有状态的（会记住最近一次被接受的 seq），因此下面的用例按文档
+ * 顺序执行，且每个失败用例还会断言解析器状态没有前进。
  */
 
 #include "metrics_parser.h"
@@ -28,7 +28,7 @@ int main(void) {
   assert(parser.has_last_seq == false);
   assert(parser.last_seq == 0U);
 
-  /* 1. Normal datagram: every field parsed and validated. */
+  /* 1. 正常报文：8 个字段全部解析并通过校验。 */
   {
     const char* json =
         "{\"v\":1,\"seq\":1,\"ts\":1700000000,\"cpu\":25.4,"
@@ -48,7 +48,7 @@ int main(void) {
     assert(parser.last_seq == 1U);
   }
 
-  /* 2. GPU unavailable: JSON null is accepted as gpu_valid == false. */
+  /* 2. GPU 不可用：JSON null 被接受，gpu_valid 置为 false。 */
   {
     const char* json =
         "{\"v\":1,\"seq\":2,\"ts\":1700000001,\"cpu\":30.0,"
@@ -63,7 +63,7 @@ int main(void) {
     assert(parser.last_seq == 2U);
   }
 
-  /* 3. Required field missing: three of the eight fields are absent. */
+  /* 3. 必填字段缺失：8 个字段里缺了 4 个。 */
   {
     const char* json = "{\"v\":1,\"seq\":3,\"ts\":1700000002,\"cpu\":25.4}";
 
@@ -71,7 +71,7 @@ int main(void) {
     assert(result == kMetricsErrMissingField);
     assert(parser.last_seq == 2U);
 
-    /* "gpu" being absent is a missing field, not "GPU unavailable". */
+    /* "gpu" 整个缺失属于缺字段，不能当成 "GPU 不可用"。 */
     json =
         "{\"v\":1,\"seq\":3,\"ts\":1700000002,\"cpu\":25.4,"
         "\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}";
@@ -79,7 +79,7 @@ int main(void) {
     assert(result == kMetricsErrMissingField);
   }
 
-  /* 4. Unsupported protocol version. */
+  /* 4. 不支持的协议版本。 */
   {
     const char* json =
         "{\"v\":2,\"seq\":4,\"ts\":1700000003,\"cpu\":25.4,"
@@ -90,7 +90,7 @@ int main(void) {
     assert(parser.last_seq == 2U);
   }
 
-  /* 5. Sequence regression: seq 1 is older than the last accepted seq 2. */
+  /* 5. 序号回退：seq 1 早于最近接受过的 seq 2。 */
   {
     const char* json =
         "{\"v\":1,\"seq\":1,\"ts\":1700000004,\"cpu\":25.4,"
@@ -100,7 +100,7 @@ int main(void) {
     assert(result == kMetricsErrStaleSeq);
     assert(parser.last_seq == 2U);
 
-    /* Duplicate sequence number is stale as well. */
+    /* 重复的序号同样视为过期。 */
     json =
         "{\"v\":1,\"seq\":2,\"ts\":1700000005,\"cpu\":25.4,"
         "\"gpu\":40.0,\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}";
@@ -109,7 +109,7 @@ int main(void) {
     assert(parser.last_seq == 2U);
   }
 
-  /* 6. Extra: malformed JSON and non-object roots. */
+  /* 6. 补充用例：畸形 JSON 与非对象根节点。 */
   {
     result = parse_cstr(&parser, "not json", &data);
     assert(result == kMetricsErrInvalidJson);
@@ -124,7 +124,7 @@ int main(void) {
     assert(result == kMetricsErrInvalidJson);
   }
 
-  /* 7. Extra: out-of-range and wrong-typed values. */
+  /* 7. 补充用例：越界取值与类型错误。 */
   {
     const char* json =
         "{\"v\":1,\"seq\":3,\"ts\":1700000006,\"cpu\":150,"
@@ -133,35 +133,35 @@ int main(void) {
     result = parse_cstr(&parser, json, &data);
     assert(result == kMetricsErrInvalidValue);
 
-    /* gpu must be a number or null, never a string. */
+    /* gpu 只能是数字或 null，不能是字符串。 */
     json =
         "{\"v\":1,\"seq\":3,\"ts\":1700000006,\"cpu\":25.4,"
         "\"gpu\":\"hot\",\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}";
     result = parse_cstr(&parser, json, &data);
     assert(result == kMetricsErrInvalidValue);
 
-    /* A negative transfer rate is not a valid number for rx. */
+    /* rx 不接受负数形式的传输速率。 */
     json =
         "{\"v\":1,\"seq\":3,\"ts\":1700000006,\"cpu\":25.4,"
         "\"gpu\":40.0,\"ram\":65.2,\"rx\":-1.0,\"tx\":2.1}";
     result = parse_cstr(&parser, json, &data);
     assert(result == kMetricsErrInvalidValue);
 
-    /* Timestamp 0 is not a valid wall clock value. */
+    /* 时间戳 0 不是合法的实际时间取值。 */
     json =
         "{\"v\":1,\"seq\":3,\"ts\":0,\"cpu\":25.4,"
         "\"gpu\":40.0,\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}";
     result = parse_cstr(&parser, json, &data);
     assert(result == kMetricsErrInvalidValue);
 
-    /* v must be a number, not the string "1". */
+    /* v 必须是数字，不能是字符串 "1"。 */
     json =
         "{\"v\":\"1\",\"seq\":3,\"ts\":1700000006,\"cpu\":25.4,"
         "\"gpu\":40.0,\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}";
     result = parse_cstr(&parser, json, &data);
     assert(result == kMetricsErrInvalidVersion);
 
-    /* Fractional seq must not be silently truncated. */
+    /* 小数形式的 seq 不允许被静默截断。 */
     json =
         "{\"v\":1,\"seq\":3.5,\"ts\":1700000006,\"cpu\":25.4,"
         "\"gpu\":40.0,\"ram\":65.2,\"rx\":10.5,\"tx\":2.1}";
@@ -171,7 +171,7 @@ int main(void) {
     assert(parser.last_seq == 2U);
   }
 
-  /* 8. Extra: NULL/invalid arguments must be rejected without crashing. */
+  /* 8. 补充用例：NULL 或非法入参必须被拒绝且不崩溃。 */
   {
     const char* json =
         "{\"v\":1,\"seq\":3,\"ts\":1700000007,\"cpu\":25.4,"
@@ -187,7 +187,7 @@ int main(void) {
     assert(metrics_parser_parse(&parser, json, len, NULL) ==
            kMetricsErrInvalidJson);
 
-    /* metrics_parser_init(NULL) is a safe no-op. */
+    /* metrics_parser_init(NULL) 是安全的空操作。 */
     metrics_parser_init(NULL);
     assert(parser.last_seq == 2U);
   }
