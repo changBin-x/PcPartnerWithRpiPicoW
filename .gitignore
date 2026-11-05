@@ -24,3 +24,6 @@ build_*/
 *.uf2
 *.elf
 *.dis
+
+# 固件运行时密钥（由 tools/sync_secrets.py 从 pico/*_secrets.py 生成）
+pico_freertos_firmware/include/firmware_secrets.h

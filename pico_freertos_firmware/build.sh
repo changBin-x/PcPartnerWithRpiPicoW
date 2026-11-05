@@ -47,6 +47,12 @@ else
   picotool_args=(-Dpicotool_FOUND=0)
 fi
 
+# 运行时密钥只存在于被 .gitignore 忽略的 pico/*_secrets.py 里，构建前从单一
+# 源头生成 include/firmware_secrets.h。缺少凭据时生成空字符串，固件据此跳过
+# 对应功能，仍然可以完整编译。
+echo "== 同步密钥 =="
+python3 "${script_dir}/../tools/sync_secrets.py"
+
 echo "== 配置 =="
 cmake -S "${script_dir}" -B "${build_dir}" "${generator_args[@]}" \
   "${picotool_args[@]}" \
