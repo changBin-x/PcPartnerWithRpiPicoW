@@ -1,0 +1,19 @@
+---
+# Google 风格（C 语言按 Google C++ 指南的命名/排版规则执行）
+Language: Cpp
+BasedOnStyle: Google
+Standard: c++20
+ColumnLimit: 80
+IndentWidth: 2
+ContinuationIndentWidth: 4
+PointerAlignment: Left
+DerivePointerAlignment: false
+SortIncludes: false
+IncludeBlocks: Preserve
+ReflowComments: true
+AlignAfterOpenBracket: Align
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BreakBeforeBraces: Attach
+AlignConsecutiveMacros: false
+SpacesBeforeTrailingComments: 2
