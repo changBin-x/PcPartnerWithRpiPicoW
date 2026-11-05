@@ -74,6 +74,14 @@ target_include_directories(test_protocol_conformance PRIVATE
 # 后续任务的测试目标请追加到本行之前，并在下面补 add_test。
 # ============================================================
 
+# ------------------------------------- task 8: supervisor monitor（纯逻辑）
+add_executable(test_supervisor_monitor
+    test_supervisor_monitor.c
+    ../src/app/supervisor_monitor.c
+)
+
+add_test(NAME supervisor_monitor COMMAND test_supervisor_monitor)
+
 add_test(NAME asset_store    COMMAND test_asset_store)
 add_test(NAME protocol_conformance COMMAND test_protocol_conformance)
 
