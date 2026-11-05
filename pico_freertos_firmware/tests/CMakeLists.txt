@@ -124,3 +124,25 @@ add_test(NAME ui_render      COMMAND test_ui_render)
 add_test(NAME wifi_manager    COMMAND test_wifi_manager)
 add_test(NAME ntp_service     COMMAND test_ntp_service)
 add_test(NAME weather_service COMMAND test_weather_service)
+
+# ------------------------------- 端到端：真实报文字节 → 状态机 → 渲染成图
+add_executable(test_pipeline_e2e
+    test_pipeline_e2e.c
+    ../src/network/metrics_parser.c
+    ../src/state/system_state.c
+    ../src/display/ui_render.c
+    ../src/display/font_engine.c
+    ../src/display/ui_layout.c
+    ../src/assets/asset_store.c
+)
+
+target_include_directories(test_pipeline_e2e PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/cjson
+)
+
+# 状态机在设备端用 FreeRTOS 互斥量，宿主端用 pthread，故需链接线程库。
+find_package(Threads REQUIRED)
+target_link_libraries(test_pipeline_e2e PRIVATE Threads::Threads cjson_lib)
+
+add_test(NAME pipeline_e2e COMMAND test_pipeline_e2e)
