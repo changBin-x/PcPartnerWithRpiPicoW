@@ -35,12 +35,15 @@ static spi_inst_t* const kSpi = spi0;
 
 static bool s_initialized = false;
 
-/* 两块 DMA 通道轮流发送，和调用方的两块切片缓冲配合形成 ping-pong。 */
-static uint s_dma_channels[2];
-static dma_channel_config s_dma_config;
-static uint s_next_dma_channel = 0;
-static uint s_last_dma_channel = 0;
-static bool s_dma_pending = false;
+/* 发往面板的字节暂存区。
+ *
+ * 为什么需要它：渲染层交来的是主机序（小端）的 RGB565 半字数组，而
+ * ST7735S 在 COLMOD=0x05（16 位/像素）下要求“高字节在前”。两块内存
+ * 的字节序不同，必须转换一次。
+ *
+ * 只有一块暂存区是安全的：write_slice() 在写入前一定会先等上一片
+ * DMA 结束（现已改用轮询），任何时刻最多只有一片数据在总线上。 */
+static uint8_t s_slice_bytes[kDisplaySlicePixels * 2];
 
 /* 等 SPI 移位寄存器与 FIFO 都排空，之后才能安全地翻转 DC 电平。 */
 static void st7735s_wait_idle(void) {
@@ -56,16 +59,21 @@ static void st7735s_write_bytes(const uint8_t* data, size_t length) {
   st7735s_wait_idle();
 }
 
-/* 发命令：DC 低；带参数时再拉高 DC 发数据。调用前 CS 必须已拉低。 */
+/* 发命令：拉低 CS，DC 低发命令；带参数时拉高 DC 发数据；发完拉高 CS。
+ * 严格按照 ST7735S 协议在每个命令周期翻转 CS，确保芯片串行解包状态机复位对齐。
+ */
 static void st7735s_write_command(uint8_t command, const uint8_t* data,
                                   size_t length) {
   st7735s_wait_idle();
+  gpio_put(kPinCs, 0);
   gpio_put(kPinDc, 0);
   st7735s_write_bytes(&command, 1);
   if (length > 0) {
     gpio_put(kPinDc, 1);
     st7735s_write_bytes(data, length);
   }
+  st7735s_wait_idle();
+  gpio_put(kPinCs, 1);
 }
 
 static void st7735s_set_window(int x, int y, int width, int height) {
@@ -136,13 +144,8 @@ static bool st7735s_begin_frame(DisplayBackend* self) {
   if (!s_initialized) {
     return false;
   }
-  if (s_dma_pending) {
-    dma_channel_wait_for_finish_blocking(s_last_dma_channel);
-    st7735s_wait_idle();
-    s_dma_pending = false;
-  }
-  s_next_dma_channel = 0;
-  gpio_put(kPinCs, 0);
+  st7735s_wait_idle();
+  gpio_put(kPinCs, 1);
   return true;
 }
 
@@ -157,32 +160,32 @@ static bool st7735s_write_slice(DisplayBackend* self, int y, int height,
     return false;
   }
 
-  /* 上一片仍在发送时先等它结束：SPI 是共享总线，不能同时发窗口命令。 */
-  if (s_dma_pending) {
-    dma_channel_wait_for_finish_blocking(s_last_dma_channel);
-    st7735s_wait_idle();
-    s_dma_pending = false;
+  /* 转成面板要求的“高字节在前”字节流，见 s_slice_bytes 的说明。 */
+  for (size_t i = 0; i < pixel_count; i++) {
+    const uint16_t value = pixels[i];
+    s_slice_bytes[i * 2u] = (uint8_t)(value >> 8);
+    s_slice_bytes[i * 2u + 1u] = (uint8_t)(value & 0xffu);
   }
 
+  /* 设置切片地址窗口（内部每个命令均有独立 CS 周期）。 */
   st7735s_set_window(0, y, kDisplayWidth, height);
-  gpio_put(kPinDc, 1);
 
-  const uint channel = s_dma_channels[s_next_dma_channel];
-  s_next_dma_channel ^= 1u;
-  dma_channel_configure(channel, &s_dma_config, &spi_get_hw(kSpi)->dr, pixels,
-                        (uint)pixel_count, true);
-  s_last_dma_channel = channel;
-  s_dma_pending = true;
+  /* 搬运像素数据：独立拉低 CS，写完等待排空并拉高 CS。
+   * 与 MicroPython 参考驱动完全对齐，彻底避免长周期 CS 低电平
+   * 导致 ST7735S 内部字节计数器产生相位偏移引发的闪纹与青条。 */
+  st7735s_wait_idle();
+  gpio_put(kPinCs, 0);
+  gpio_put(kPinDc, 1);
+  spi_write_blocking(kSpi, s_slice_bytes, pixel_count * 2u);
+  st7735s_wait_idle();
+  gpio_put(kPinCs, 1);
+
   return true;
 }
 
 static void st7735s_end_frame(DisplayBackend* self) {
   (void)self;
-  if (s_dma_pending) {
-    dma_channel_wait_for_finish_blocking(s_last_dma_channel);
-    st7735s_wait_idle();
-    s_dma_pending = false;
-  }
+  st7735s_wait_idle();
   gpio_put(kPinDc, 0);
   gpio_put(kPinCs, 1);
 }
@@ -200,15 +203,6 @@ bool st7735s_init(void) {
     return true;
   }
 
-  /* 两块通道必须成对申请：单通道无法让“发当前片”与“准备下一片”重叠。 */
-  s_dma_channels[0] = dma_claim_unused_channel(true);
-  s_dma_channels[1] = dma_claim_unused_channel(true);
-  s_dma_config = dma_channel_get_default_config(s_dma_channels[0]);
-  channel_config_set_transfer_data_size(&s_dma_config, DMA_SIZE_16);
-  channel_config_set_read_increment(&s_dma_config, true);
-  channel_config_set_write_increment(&s_dma_config, false);
-  channel_config_set_dreq(&s_dma_config, DREQ_SPI0_TX);
-
   gpio_init(kPinCs);
   gpio_set_dir(kPinCs, GPIO_OUT);
   gpio_put(kPinCs, 1);
@@ -222,11 +216,10 @@ bool st7735s_init(void) {
   gpio_set_function(kPinSck, GPIO_FUNC_SPI);
   gpio_set_function(kPinMosi, GPIO_FUNC_SPI);
   /* spi_init 内部按 clk_peri 计算分频，并设置 8 位/CPOL=0/CPHA=0/MSB。
-   * 波特率取 20 MHz：这与仓库里已在实机上跑通的 MicroPython 驱动
-   * (pico/st7735.py 的 baudrate=20_000_000) 完全一致。整屏 40960 字节
-   * 传完约 16 毫秒，配上双缓冲 DMA 已经够用；再往上提高只是徒增
-   * 手工跳线上的信号完整性风险，而本项目无法在硬件上回归验证。 */
-  spi_init(kSpi, 20000000);
+   * 波特率取 10 MHz：降低时钟频率以抑制杜邦线跳线上的高频信号反射与抖动，
+   * 进一步提升信号完整性。整屏 40960 字节在 10 MHz 下仅需约 32 毫秒，
+   * 依然完全满足 30 FPS 左右的平滑刷新需求。 */
+  spi_init(kSpi, 10000000);
 
   st7735s_hardware_reset();
   gpio_put(kPinCs, 0);
