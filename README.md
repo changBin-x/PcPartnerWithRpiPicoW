@@ -25,7 +25,7 @@
 - 主机端不开放任何 TCP/HTTP 端口，也不依赖云服务；数据只在本机所在广播域内传播。
 - 界面预览来自 2026-11-03 的 Pico W + ST7735S 实机。2026-11-06 修复版本已通过本机 mpremote 部署到 MicroPython 1.29.0，并验证天气请求与真实 UDP 指标接收；完整验收尚未结束，详见下方「本轮真机验证」。当前 199 项单元测试在 Linux + Python 3.12.3 上通过；修复后的 Windows 路径未实跑。
 
-> **另有一条 C + FreeRTOS 固件实现**，位于 [`pico_freertos_firmware/`](pico_freertos_firmware/README.md)：协议、界面与资源与本文的 MicroPython 版本共用，改用 pico-sdk + FreeRTOS SMP 双核（Core 0 跑网络、Core 1 独占刷屏），带硬件看门狗与串口诊断，宿主侧 13 个测试套件全绿。它同样**尚未在实机运行**，验收边界见该目录 README 的「已知限制」。
+> **另有一条 C + FreeRTOS 固件实现**，位于 [`pico_freertos_firmware/`](pico_freertos_firmware/README.md)：协议、界面与资源与本文的 MicroPython 版本共用，改用 pico-sdk + FreeRTOS SMP 双核（Core 0 跑网络、Core 1 独占刷屏），带硬件看门狗与串口诊断。ST7735S 驱动采用 10 MHz SPI 时钟并实现独立的 CS 周期同步控制，已在实机上通过 RTSP 视频流完成时钟模式与仪表盘模式的连续动态刷新闭环验证，运行稳定。详细说明见该目录的 README。
 
 ## 功能特性
 
@@ -73,7 +73,7 @@
 | CS | GP17 |
 
 - 目标硬件为 **Pico W（RP2040）**，不是 Pico 2 W（RP2350）；项目使用 MicroPython 1.29.0，并已完成整机部署验证。
-- SPI0，时钟 20 MHz，极性 0、相位 0，MSB first；屏幕供电与背光按模块标识接线（待补充：所用屏幕模块型号与供电电压）。
+- SPI0，极性 0、相位 0，MSB first。MicroPython 实现使用 20 MHz，C + FreeRTOS 固件使用 10 MHz（可抑制杜邦跳线的高频信号反射）；屏幕供电与背光按模块标识接线（待补充：所用屏幕模块型号与供电电压）。
 - 屏幕分辨率 128×160，RGB565，竖屏显示。
 
 ## 环境要求
