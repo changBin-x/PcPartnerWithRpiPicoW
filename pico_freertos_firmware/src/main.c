@@ -188,7 +188,11 @@ int main(void) {
 
   /* 显示与网络都只创建任务，初始化在各自任务内完成；显示侧不返回状态，
    * 任务内部的失败会自行打印并置为无输出，不影响 Core 0 的网络业务。 */
-  ui_render_start_task();
+  if (!ui_render_start_task()) {
+    /* 显示起不来时不要拖着监督任务一起复位：摘掉这个槽位，设备至少还能
+     * 联网、还能把状态送到串口。 */
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotUi);
+  }
   if (!network_start()) {
     printf("网络任务创建失败，设备将离线运行。\n");
   }

@@ -68,10 +68,28 @@ static TaskStatus_t s_task_status[kMaxTaskStatusEntries];
 /* 打印一次运行时诊断。这些数字是本项目唯一能拿到的「运行证据」：
  * 日志里的剩余堆若长期逼近 0，说明某个模块的内存估计偏乐观；
  * 某个任务的栈水位若接近 0，说明它的栈给少了。 */
+/* 启动后的自检摘要。
+ *
+ * 之所以延后打印：USB CDC 要等主机枚举完成后主机才收得到串口数据，启动
+ * 头一两秒打的日志会直接掉进黑洞。看清楚「哪些子系统被停用了」恰恰是
+ * 排查重启循环的第一手信息，所以要等枚举完成再打。 */
+static void supervisor_print_boot_summary(void) {
+  const uint32_t disabled = supervisor_monitor_disabled_count();
+  printf("[启动] 监视槽位 %d 个，已停用 %u 个。\n", (int)kSupervisorSlotCount,
+         (unsigned)disabled);
+  for (int i = 0; i < kSupervisorSlotCount; ++i) {
+    const SupervisorSlot slot = (SupervisorSlot)i;
+    if (!supervisor_monitor_is_enabled(slot)) {
+      printf("[启动] 已停用：%s\n", supervisor_slot_name(slot));
+    }
+  }
+}
+
 static void supervisor_print_diagnostics(void) {
-  printf("[诊断] 堆剩余 %u 字节 / 历史最低 %u 字节\n",
+  printf("[诊断] 堆剩余 %u 字节 / 历史最低 %u 字节，停用槽位 %u 个\n",
          (unsigned)xPortGetFreeHeapSize(),
-         (unsigned)xPortGetMinimumEverFreeHeapSize());
+         (unsigned)xPortGetMinimumEverFreeHeapSize(),
+         (unsigned)supervisor_monitor_disabled_count());
 
   const UBaseType_t count =
       uxTaskGetSystemState(s_task_status, kMaxTaskStatusEntries, NULL);
@@ -89,6 +107,13 @@ static void supervisor_task(void* argument) {
 
   printf("监督任务已启动：看门狗 %d 毫秒，检查周期 %d 毫秒。\n",
          kSupervisorWatchdogTimeoutMs, kSupervisorPeriodMs);
+
+  /* 等 USB 枚举完成再打摘要，期间照常喂狗保证不会被自己的看门狗复位。 */
+  for (int i = 0; i < 4; ++i) {
+    watchdog_update();
+    vTaskDelay(pdMS_TO_TICKS(kMillisecondsToNextSecond));
+  }
+  supervisor_print_boot_summary();
 
   for (;;) {
     const uint32_t current_ms = now_ms();

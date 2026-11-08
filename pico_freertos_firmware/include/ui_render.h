@@ -29,6 +29,7 @@ int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
 
 /* 创建并绑定到 Core 1 的渲染任务 vTaskUIRender。
  * main.c 目前尚未调用本入口，但函数本身已编译进镜像。 */
-void ui_render_start_task(void);
+/* 创建渲染任务；成功返回 true。失败时调用方需要摘掉 UI 监视槽位。 */
+bool ui_render_start_task(void);
 
 #endif /* PICO_FREERTOS_FIRMWARE_INCLUDE_UI_RENDER_H_ */

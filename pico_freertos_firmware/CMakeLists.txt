@@ -143,7 +143,13 @@ embed_asset(lunar_table.bin)
 embed_asset(amap_root_ca.pem)
 embed_asset(hko_root_ca.pem)
 
+option(DIAGNOSTIC_TEST_PATTERN "生成诊断测试图案固件（上半彩条下半棋盘）" OFF)
+
 add_executable(pico_status_screen ${FIRMWARE_SOURCES} ${ASSET_OBJECTS})
+
+if (DIAGNOSTIC_TEST_PATTERN)
+  target_compile_definitions(pico_status_screen PRIVATE DIAGNOSTIC_TEST_PATTERN=1)
+endif ()
 
 target_include_directories(pico_status_screen PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include

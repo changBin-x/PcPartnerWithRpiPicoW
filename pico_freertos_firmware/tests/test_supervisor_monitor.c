@@ -1,9 +1,10 @@
 /* 子系统存活监视器的宿主单测。
  *
- * 重点覆盖三类容易写错的地方：
+ * 重点覆盖四类容易写错的地方：
  *   1. 超时判定的边界——「刚好等于超时」必须算健康，多 1ms 才判死；
  *   2. tick 回绕——时间戳从 0xFFFFFF00 附近翻到 0 之后差值仍然正确；
- *   3. reset 的必要性——没有 reset 就检查，所有槽位会集体判超时。 */
+ *   3. reset 的必要性——没有 reset 就检查，所有槽位会集体判超时；
+ *   4. 停用槽位——按设计主动关闭的子系统不能拖垮整机看门狗。 */
 
 #include <assert.h>
 #include <stdint.h>
@@ -82,12 +83,83 @@ static void test_names_and_bounds(void) {
   printf("PASS: 槽位名与越界检查\n");
 }
 
+/* Wi-Fi 单次连接尝试最长阻塞 15 秒，监视超时必须比它长，否则「正在连接」
+ * 会被误判成「卡死」，进而停止喂狗把整机复位。这条断言直接锁住实机上
+ * 已经踩过一次的坑。 */
+static void test_wifi_timeout_covers_connect_attempt(void) {
+  const uint32_t connect_attempt_ms = 15000u;
+  assert(supervisor_slot_timeout_ms(kSupervisorSlotWifi) > connect_attempt_ms);
+  printf("PASS: Wi-Fi 超时长于单次连接尝试（%u > %u 毫秒）\n",
+         (unsigned)supervisor_slot_timeout_ms(kSupervisorSlotWifi),
+         (unsigned)connect_attempt_ms);
+}
+
+static void test_disable_removes_slot_from_monitoring(void) {
+  supervisor_monitor_reset(0u);
+  assert(supervisor_monitor_disabled_count() == 0u);
+
+  /* 推到所有槽位都超时的时刻。 */
+  const uint32_t now = 60000u;
+  assert(supervisor_monitor_first_stale(now) == kSupervisorSlotWifi);
+
+  /* 停用 wifi 后，它既不算健康也不算超时，监督任务会转而报告下一个。 */
+  supervisor_monitor_disable(kSupervisorSlotWifi);
+  assert(!supervisor_monitor_is_enabled(kSupervisorSlotWifi));
+  assert(supervisor_monitor_disabled_count() == 1u);
+  assert(supervisor_monitor_first_stale(now) == kSupervisorSlotUdp);
+  assert(supervisor_monitor_stale_count(now) ==
+         (uint32_t)kSupervisorSlotCount - 1u);
+
+  /* 停用期间补签不会让它重新参与监视。 */
+  supervisor_monitor_check_in(kSupervisorSlotWifi, now);
+  assert(!supervisor_monitor_is_enabled(kSupervisorSlotWifi));
+
+  /* 重新启用后，因为刚刚补过签，它立刻是健康的。 */
+  supervisor_monitor_enable(kSupervisorSlotWifi);
+  assert(supervisor_monitor_is_enabled(kSupervisorSlotWifi));
+  assert(supervisor_monitor_disabled_count() == 0u);
+  assert(supervisor_monitor_first_stale(now) == kSupervisorSlotUdp);
+  printf("PASS: 停用槽位脱离监视，重新启用后按最近一次签到判定\n");
+}
+
+static void test_disable_all_keeps_system_healthy(void) {
+  /* 极端情况：所有任务都按设计关闭（例如整机只剩屏幕）。此时监督任务
+   * 应该认为系统健康并继续喂狗，而不是复位整机。 */
+  supervisor_monitor_reset(0u);
+  for (int i = 0; i < kSupervisorSlotCount; ++i) {
+    supervisor_monitor_disable((SupervisorSlot)i);
+  }
+  assert(supervisor_monitor_first_stale(60000u) == kSupervisorSlotCount);
+  assert(supervisor_monitor_stale_count(60000u) == 0u);
+  assert(supervisor_monitor_disabled_count() == (uint32_t)kSupervisorSlotCount);
+
+  /* reset 会把所有槽位重新启用，避免一次误停用永久生效。 */
+  supervisor_monitor_reset(0u);
+  assert(supervisor_monitor_disabled_count() == 0u);
+  assert(supervisor_monitor_first_stale(60000u) == kSupervisorSlotWifi);
+  printf("PASS: 全部停用时仍判健康，reset 会重新启用\n");
+}
+
+static void test_disable_bounds_are_safe(void) {
+  supervisor_monitor_reset(0u);
+  supervisor_monitor_disable(kSupervisorSlotCount);
+  supervisor_monitor_disable((SupervisorSlot)-1);
+  supervisor_monitor_enable(kSupervisorSlotCount);
+  assert(!supervisor_monitor_is_enabled(kSupervisorSlotCount));
+  assert(supervisor_monitor_disabled_count() == 0u);
+  printf("PASS: 停用/启用的越界入参被安全拒绝\n");
+}
+
 int main(void) {
   test_reset_makes_everything_healthy();
   test_zero_baseline_all_stale();
   test_check_in_revives_only_that_slot();
   test_tick_wraparound();
   test_names_and_bounds();
+  test_wifi_timeout_covers_connect_attempt();
+  test_disable_removes_slot_from_monitoring();
+  test_disable_all_keeps_system_healthy();
+  test_disable_bounds_are_safe();
   printf("PASS: test_supervisor_monitor\n");
   return 0;
 }

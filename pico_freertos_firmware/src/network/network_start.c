@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 
+#include "firmware_checkin.h"
 #include "mbedtls_time_source.h"
 #include "ntp_service.h"
 #include "udp_listener.h"
@@ -32,6 +33,21 @@ __attribute__((noinline)) bool network_start(void) {
   bool ntp = ntp_service_start();
   bool weather = weather_service_start();
   result = wifi && udp && ntp && weather;
+
+  /* 任务没建起来就不会有任何签到，必须把对应槽位摘掉，否则监督任务会
+   * 认定系统不健康而停止喂狗，把「少一个功能」放大成「整机复位循环」。 */
+  if (!wifi) {
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotWifi);
+  }
+  if (!udp) {
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotUdp);
+  }
+  if (!ntp) {
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotNtp);
+  }
+  if (!weather) {
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotWeather);
+  }
 
   printf("网络子系统启动：Wi-Fi %s，UDP %s，NTP %s，天气 %s。\n",
          wifi ? "已创建" : "失败", udp ? "已创建" : "失败",

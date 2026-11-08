@@ -512,6 +512,7 @@ static void vTaskUIRender(void* context) {
   DisplayBackend* backend = st7735s_backend();
   if (!st7735s_init() || !ui_render_init()) {
     printf("显示初始化失败\n");
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotUi);
     vTaskDelete(NULL);
     return;
   }
@@ -525,27 +526,40 @@ static void vTaskUIRender(void* context) {
   for (;;) {
     FIRMWARE_CHECK_IN(kSupervisorSlotUi);
     vTaskDelay(pdMS_TO_TICKS(kRenderPeriodMs));
+    /* 推进状态机：PC 指标超时后要把界面切回时钟页。
+     *
+     * 这一句必须存在：system_state 只负责记录“上次收到指标的时刻”，
+     * 判断是否超时并切换 ui_mode 是 check_timeouts() 的职责。渲染任务
+     * 是快照的唯一消费者，由它在取快照之前推进状态机，界面才不会
+     * 永远停在仪表盘上显示已经冻结的数值。 */
+    system_state_check_timeouts((uint32_t)pdTICKS_TO_MS(xTaskGetTickCount()));
     SystemSnapshot current;
     system_state_get_snapshot(&current);
+#if defined(DIAGNOSTIC_TEST_PATTERN) && (DIAGNOSTIC_TEST_PATTERN == 1)
+    ui_render_draw_frame(backend, &current);
+#else
     UiRect dirty_rects[kMaxDirtyRects];
     const int dirty_count = ui_render_collect_dirty_regions(
         &previous, &current, dirty_rects, kMaxDirtyRects);
     if (dirty_count > 0) {
       ui_render_draw_dirty(backend, &current, dirty_rects, dirty_count);
     }
+#endif
     previous = current;
   }
 }
 
-void ui_render_start_task(void) {
+bool ui_render_start_task(void) {
   TaskHandle_t handle = NULL;
   const BaseType_t created =
       xTaskCreate(vTaskUIRender, "vTaskUIRender", kRenderStackWords, NULL,
                   kRenderPriority, &handle);
-  configASSERT(created == pdPASS);
-  if (created == pdPASS) {
-    vTaskCoreAffinitySet(handle, (UBaseType_t)(1u << 1));
+  if (created != pdPASS || handle == NULL) {
+    printf("显示任务创建失败\n");
+    return false;
   }
+  vTaskCoreAffinitySet(handle, (UBaseType_t)(1u << 1));
+  return true;
 }
 
 #endif /* PICO_ON_DEVICE */

@@ -76,6 +76,13 @@
 /* 摘要算法 */
 /* ------------------------------------------------------------------ */
 #define MBEDTLS_MD_C
+/* 高德根证书包里混着一份 2006 年签发的 GlobalSign Root CA - R2，其签名
+ * 算法是 sha1WithRSAEncryption。mbedtls 用 MBEDTLS_MD_CAN_SHA1 控制
+ * oid.c 中该 OID 的登记，未开启时该证书会以“未知签名算法”解析失败，
+ * mbedtls_x509_crt_parse() 返回 1（部分失败的证书张数）而被误判为整体
+ * 失败。开启 SHA-1 只多花约 2KB Flash，且仅用于解析证书字段，不参与
+ * TLS 握手协商。 */
+#define MBEDTLS_SHA1_C
 #define MBEDTLS_SHA224_C
 #define MBEDTLS_SHA256_C
 #define MBEDTLS_SHA512_C

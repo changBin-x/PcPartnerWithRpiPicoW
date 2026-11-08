@@ -69,18 +69,37 @@ bool wifi_manager_is_network_ready(void) { return s_network_ready; }
 
 #ifdef PICO_ON_DEVICE
 
+/* 退避期间的分片长度：每秒醒一次签到，避免长时间静默被监督任务误判。 */
+#define kWifiBackoffSliceMs 1000u
+
+static void wifi_manager_sleep_with_check_in(uint32_t total_ms) {
+  uint32_t remaining = total_ms;
+  while (remaining > 0u) {
+    uint32_t slice =
+        remaining < kWifiBackoffSliceMs ? remaining : kWifiBackoffSliceMs;
+    vTaskDelay(pdMS_TO_TICKS(slice));
+    remaining -= slice;
+    FIRMWARE_CHECK_IN(kSupervisorSlotWifi);
+  }
+}
+
 /* 已连接时每秒检查一次链路；掉线后立即重新连接。 */
 static void wifi_manager_wait_while_connected(void) {
   for (;;) {
     /* 已连接期间主循环停在这里，签到必须在这一层也有。 */
     FIRMWARE_CHECK_IN(kSupervisorSlotWifi);
     vTaskDelay(pdMS_TO_TICKS(kWifiStatusPollMs));
-    if (cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {
+    /* 必须用 cyw43_tcpip_link_status：cyw43_wifi_link_status() 只会返回
+     * CYW43_LINK_JOIN/DOWN/FAIL 等，永远不会返回 CYW43_LINK_UP（那是
+     * 「netif 已启用 + 链路已通 + 已拿到 IP」的合成状态）。用错 API 会让
+     * 每次轮询都判定「已断开」，进而每秒重连一次。 */
+    const int status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+    if (status == CYW43_LINK_UP) {
       continue;
     }
+    printf("Wi-Fi 连接已断开（链路状态码 %d），立即重连。\n", status);
     s_connected = false;
     system_state_set_wifi_status(false);
-    printf("Wi-Fi 连接已断开，立即重连。\n");
     return;
   }
 }
@@ -93,6 +112,9 @@ static void wifi_manager_task(void* argument) {
     printf("Wi-Fi 未配置 SSID，跳过联网；时钟与本地界面继续运行。\n");
     s_connected = false;
     system_state_set_wifi_status(false);
+    /* 这是设计内行为，不是故障：把自己从监视里摘掉，否则监督任务会
+     * 一直等不到签到而反复复位整机。 */
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotWifi);
     vTaskDelete(NULL);
     return;
   }
@@ -102,6 +124,7 @@ static void wifi_manager_task(void* argument) {
     printf("Wi-Fi 芯片初始化失败，错误码 %d；联网功能不可用。\n", result);
     s_connected = false;
     system_state_set_wifi_status(false);
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotWifi);
     vTaskDelete(NULL);
     return;
   }
@@ -134,7 +157,7 @@ static void wifi_manager_task(void* argument) {
     system_state_set_wifi_status(false);
     printf("Wi-Fi 连接失败（错误码 %d），%u 毫秒后重试。\n", result,
            (unsigned)delay_ms);
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    wifi_manager_sleep_with_check_in(delay_ms);
   }
 }
 

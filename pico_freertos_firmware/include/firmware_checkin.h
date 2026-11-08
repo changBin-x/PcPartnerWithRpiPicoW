@@ -17,9 +17,14 @@
   supervisor_monitor_check_in((slot), \
                               (uint32_t)pdTICKS_TO_MS(xTaskGetTickCount()))
 
+/* 子系统按设计主动关闭时调用：把自己从监视里摘掉，监督任务就不会因为
+ * 这个槽位永远不再签到而停止喂狗（否则整机会陷入复位循环）。 */
+#define FIRMWARE_CHECK_IN_DISABLE(slot) supervisor_monitor_disable(slot)
+
 #else /* PICO_ON_DEVICE */
 
 #define FIRMWARE_CHECK_IN(slot) ((void)0)
+#define FIRMWARE_CHECK_IN_DISABLE(slot) ((void)0)
 
 #endif /* PICO_ON_DEVICE */
 

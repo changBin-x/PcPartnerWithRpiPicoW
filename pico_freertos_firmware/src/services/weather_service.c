@@ -389,6 +389,8 @@ static mbedtls_x509_crt s_ca;
 static mbedtls_entropy_context s_entropy;
 static mbedtls_ctr_drbg_context s_drbg;
 static bool s_tls_ready = false;
+/* 是否已经走过一次 TLS 初始化，用于决定重试前要不要先释放。 */
+static bool s_tls_attempted = false;
 static bool s_started = false;
 
 /* 通过 volatile 指针读取 Key，避免 Key 为空时编译器把整条 HTTPS 调用链
@@ -684,6 +686,19 @@ static bool weather_tls_init(void) {
     return true;
   }
 
+  /* 上一次初始化可能半途失败，重试前必须先释放，否则会对同一组上下文
+   * 重复 init 造成泄漏。首次进入时这些上下文还是 BSS 里的全零，不需要
+   * （也不应该）释放。 */
+  if (s_tls_attempted) {
+    mbedtls_ssl_free(&s_ssl);
+    mbedtls_ssl_config_free(&s_conf);
+    mbedtls_x509_crt_free(&s_ca);
+    mbedtls_ctr_drbg_free(&s_drbg);
+    mbedtls_entropy_free(&s_entropy);
+  }
+  s_tls_attempted = true;
+  s_tls_ready = false;
+
   mbedtls_ssl_init(&s_ssl);
   mbedtls_ssl_config_init(&s_conf);
   mbedtls_x509_crt_init(&s_ca);
@@ -704,8 +719,20 @@ static bool weather_tls_init(void) {
     weather_log_error("读取高德根证书", -1);
     return false;
   }
+  /* mbedtls_x509_crt_parse() 的返回值语义有两套：负数表示整包失败，正数
+   * 表示“成功解析了一部分、另有 N 张证书失败”。证书包是我们自己随固件
+   * 打包的可信数据，出现正数说明固件裁剪配置缺了某张证书用到的算法，
+   * 属于必须修的配置缺陷。这里把它翻译成人能看懂的提示，而不是只打一
+   * 个孤立的“错误码 1”。 */
   error = mbedtls_x509_crt_parse(&s_ca, ca->data, ca->size + 1);
-  if (error != 0) {
+  if (error > 0) {
+    printf(
+        "天气证书包中有 %d 张证书解析失败，请检查 mbedtls_project_config.h"
+        "是否缺少对应算法。\n",
+        error);
+    return false;
+  }
+  if (error < 0) {
     weather_log_error("解析高德根证书", error);
     return false;
   }
@@ -909,21 +936,30 @@ static void weather_task(void* argument) {
   const char* key = s_weather_key;
   if (key[0] == '\0') {
     printf("未配置高德 Web 服务 Key，天气模块跳过，其它功能照常运行。\n");
+    /* 配置缺失是设计内行为，摘掉监视槽位，避免整机反复复位。 */
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotWeather);
     vTaskDelete(NULL);
     return;
   }
   if (!weather_key_is_valid(key)) {
     printf("高德 Web 服务 Key 格式非法，天气模块跳过。\n");
+    FIRMWARE_CHECK_IN_DISABLE(kSupervisorSlotWeather);
     vTaskDelete(NULL);
     return;
   }
 
   mbedtls_time_source_init();
-  if (!weather_tls_init()) {
-    printf("天气模块初始化失败，本次运行不再重试。\n");
+
+  /* TLS 初始化失败在实机上意味着堆不够或证书表异常。这种情况多数是瞬时
+   * 的（还有别的模块正在申请内存），所以退避重试，而不是永久关闭天气，
+   * 更不能让任务直接消失——那会拖垮监督任务。等待期间照常签到。 */
+  while (!weather_tls_init()) {
     weather_mark_stale();
-    vTaskDelete(NULL);
-    return;
+    for (int i = 0; i < 12; ++i) {
+      FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
+      vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+    printf("天气模块初始化重试中。\n");
   }
 
   static const uint32_t kRetryDelaysMs[] = {60000u, 300000u, 900000u, 1800000u};

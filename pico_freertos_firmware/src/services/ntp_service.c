@@ -332,6 +332,10 @@ static void ntp_task(void* argument) {
   uint32_t retry_index = 0;
 
   for (;;) {
+    /* 签到必须放在循环最前面：下面几条 continue 分支（等 WiFi、等下一次
+     * 同步）都会停留很久，签到放在循环末尾时这些分支根本走不到。 */
+    FIRMWARE_CHECK_IN(kSupervisorSlotNtp);
+
     if (mbedtls_time_source_is_valid()) {
       uint32_t unix_seconds = mbedtls_time_source_get_unix();
       if (unix_seconds != s_last_unix) {
@@ -374,7 +378,6 @@ static void ntp_task(void* argument) {
         ++retry_index;
       }
     }
-    FIRMWARE_CHECK_IN(kSupervisorSlotNtp);
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
