@@ -362,7 +362,7 @@ python -m compileall pc_metrics tests tools pico
 ```
 
 - 测试覆盖协议编解码、采集与广播地址、主机循环容错与重建、显示布局、应用主循环（秒对齐/重连/看门狗）、时钟/农历、天气后台线程、Wi‑Fi 状态机、启动入口与部署清单等；涉及真实硬件与网络的路径以实机验证为准。
-- 本轮验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 205 项全部通过（2026-11-10 复核）。`python -m pyflakes pico pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools pico` 目前会被 `tools/gen_protocol_fixtures.py` 的既有语法错误阻断，本轮未作为通过项；该文件与本次资源迁移无关。历史 Windows + Python 3.11.9 的结果不代表本轮修复已在 Windows 上验证。
+- 本轮验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 205 项全部通过（2026-11-10 复核），`python -m pyflakes pico pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools pico` 均无错误。历史 Windows + Python 3.11.9 的结果不代表本轮修复已在 Windows 上验证。
 - 主机侧与 Pico 逻辑用 mock/注入覆盖，不依赖真实网卡或串口；两个 PowerShell 脚本有静态一致性测试（`tests/test_deploy_manifest.py`）但未在 CI 中执行，改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次。仓库当前未配置 CI。
 - 重新生成字库（需 CJK TTF/OTF 与 ASCII 字体）：
 

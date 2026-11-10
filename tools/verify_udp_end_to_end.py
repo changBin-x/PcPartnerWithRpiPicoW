@@ -12,7 +12,6 @@
     python3 tools/verify_udp_end_to_end.py
 """
 
-import json
 import pathlib
 import shutil
 import socket

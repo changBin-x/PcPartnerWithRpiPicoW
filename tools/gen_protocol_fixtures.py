@@ -1,53 +1,51 @@
-""
-    "生成 UDP 指标报文的协议一致性测试数据集。
+"""生成 UDP 指标报文的协议一致性测试数据集。
 
-    固件里的 `metrics_parser.c` 是 C 实现，PC 端的 `pc_metrics /
-    protocol
-        .py` 是 Python
-            实现；两者必须对「哪些报文合法」达成完全一致的判断，否则现场会出现 收不到数据却查不出原因的故障。本脚本用
-                **真实的 Python 编码器 **造出合法报文，
-                    再手写一批应当被拒绝的报文，输出成 C
-                        头文件供 `test_protocol_conformance.c` 逐条断言。
+固件里的 `metrics_parser.c` 是 C 实现，PC 端的 `pc_metrics/protocol.py`
+是 Python 实现；两者必须对「哪些报文合法」达成完全一致的判断，否则现场
+会出现收不到数据却查不出原因的故障。本脚本用 **真实的 Python 编码器**
+造出合法报文，再手写一批应当被拒绝的报文，输出成 C 头文件供
+`test_protocol_conformance.c` 逐条断言。
 
-                            用法：
+用法：
 
-                                python3 tools /
-    gen_protocol_fixtures.py
+    python3 tools/gen_protocol_fixtures.py
 
-        输出：pico_freertos_firmware /
-    tests / generated /
-    udp_packets_data.h
-    ""
-    "
+输出：pico_freertos_firmware/tests/generated/udp_packets_data.h
+"""
 
-    import json import pathlib import sys
+import json
+import pathlib
+import sys
 
-        REPO_ROOT = pathlib.Path(__file__)
-                        .resolve()
-                        .parent.parent sys.path
-                        .insert(0, str(REPO_ROOT))
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
-                            from pc_metrics.protocol import PACKET_VERSION,
-        encode_packet #noqa
-    : E402
+from pc_metrics.protocol import PACKET_VERSION, encode_packet  # noqa: E402
 
-          OUTPUT = (REPO_ROOT / "pico_freertos_firmware" / "tests" /
-                    "generated" / "udp_packets_data.h")
-#与 metrics_parser.h 的 MetricsParseResult 枚举顺序严格一致。
-              PARSE_OK = 0 PARSE_INVALID_JSON = 1 PARSE_MISSING_FIELD =
-                  2 PARSE_INVALID_VERSION = 3 PARSE_INVALID_VALUE =
-                      4 PARSE_STALE_SEQ = 5
+OUTPUT = (
+    REPO_ROOT
+    / "pico_freertos_firmware"
+    / "tests"
+    / "generated"
+    / "udp_packets_data.h"
+)
 
-      HEADER =
-          ""
-          "\
+# 与 metrics_parser.h 的 MetricsParseResult 枚举顺序严格一致。
+PARSE_OK = 0
+PARSE_INVALID_JSON = 1
+PARSE_MISSING_FIELD = 2
+PARSE_INVALID_VERSION = 3
+PARSE_INVALID_VALUE = 4
+PARSE_STALE_SEQ = 5
+
+HEADER = """\
 /* 本文件由 tools/gen_protocol_fixtures.py 生成，请勿手工编辑。
-          * 合法报文来自 PC 端真实的 pc_metrics.protocol.encode_packet， *
-          非法报文为手写样本；两侧判断必须完全一致。 * /
+ * 合法报文来自 PC 端真实的 pc_metrics.protocol.encode_packet，
+ * 非法报文为手写样本；两侧判断必须完全一致。 */
 #ifndef PICO_FREERTOS_FIRMWARE_TESTS_GENERATED_UDP_PACKETS_DATA_H_
 #define PICO_FREERTOS_FIRMWARE_TESTS_GENERATED_UDP_PACKETS_DATA_H_
 
-          typedef struct {
+typedef struct {
   const char* name;   /* 用例名称。 */
   int expected;       /* 期望的 MetricsParseResult 取值。 */
   const char* packet; /* 报文字节内容（不含结尾 NUL）。 */
@@ -55,16 +53,13 @@
 } UdpPacketCase;
 
 static const UdpPacketCase kUdpPacketCases[] = {
-    ""
-    "
+"""
 
-    FOOTER =
-        ""
-        "\
+FOOTER = """\
 };
 
-    static const unsigned int kUdpPacketCaseCount =
-        sizeof(kUdpPacketCases) / sizeof(kUdpPacketCases[0]);
+static const unsigned int kUdpPacketCaseCount =
+    sizeof(kUdpPacketCases) / sizeof(kUdpPacketCases[0]);
 
 #endif /* PICO_FREERTOS_FIRMWARE_TESTS_GENERATED_UDP_PACKETS_DATA_H_ */
 """
