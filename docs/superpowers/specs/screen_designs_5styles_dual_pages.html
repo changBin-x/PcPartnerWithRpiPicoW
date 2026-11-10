@@ -1,746 +1,1168 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ST7735S 128×160 桌面屏：五套多风格主题双页面完整渲染仿真看板</title>
-<style>
-  :root {
-    --bg-workspace: #0a0c10;
-    --card-surface: #13161c;
-    --text-primary: #e6e8eb;
-    --text-secondary: #8b929e;
-    --border-color: #20242e;
-    --bezel-color: #171920;
-    --bezel-border: #262933;
-  }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ST7735S 128×160 桌面屏：五套多风格主题双页面完整渲染仿真看板</title>
+  <style>
+    :root {
+      --bg-workspace: #0a0c10;
+      --card-surface: #13161c;
+      --text-primary: #e6e8eb;
+      --text-secondary: #8b929e;
+      --border-color: #20242e;
+      --bezel-color: #171920;
+      --bezel-border: #262933;
+    }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background-color: var(--bg-workspace);
-    color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-    padding: 24px;
-    line-height: 1.5;
-  }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-  header {
-    max-width: 1720px;
-    margin: 0 auto 28px auto;
-    border-bottom: 1px solid var(--border-color);
-    padding-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-  }
-  h1 { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 6px; }
-  .subtitle { font-size: 13px; color: var(--text-secondary); }
+    body {
+      background-color: var(--bg-workspace);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      padding: 24px;
+      line-height: 1.5;
+    }
 
-  .theme-section {
-    max-width: 1720px;
-    margin: 0 auto 32px auto;
-    background: var(--card-surface);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 20px 24px;
-    display: flex;
-    gap: 28px;
-    align-items: center;
-  }
+    header {
+      max-width: 1720px;
+      margin: 0 auto 28px auto;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
 
-  .screens-pair {
-    display: flex;
-    gap: 16px;
-    flex-shrink: 0;
-  }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+    }
 
-  .screen-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .screen-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .screen-label .badge {
-    background: #252a36;
-    color: #a0aec0;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 10px;
-  }
+    .subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
 
-  .screen-bezel {
-    width: 200px;
-    height: 250px;
-    background: var(--bezel-color);
-    border: 3px solid var(--bezel-border);
-    border-radius: 7px;
-    box-shadow: 0 12px 28px rgba(0,0,0,0.7), inset 0 1px 1px rgba(255,255,255,0.06);
-    position: relative;
-    padding: 6px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
+    .theme-section {
+      max-width: 1720px;
+      margin: 0 auto 32px auto;
+      background: var(--card-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px 24px;
+      display: flex;
+      gap: 28px;
+      align-items: center;
+    }
 
-  /* 逻辑尺寸严格 128x160，等比缩放适配 200x250 外框 (scale 1.468) */
-  .screen-viewport {
-    width: 128px;
-    height: 160px;
-    transform: scale(1.468);
-    transform-origin: center center;
-    image-rendering: pixelated;
-    overflow: hidden;
-    position: relative;
-    user-select: none;
-    font-family: "Courier New", Courier, monospace, ui-monospace;
-    font-variant-numeric: tabular-nums;
-  }
+    .screens-pair {
+      display: flex;
+      gap: 16px;
+      flex-shrink: 0;
+    }
 
-  .theme-desc-panel {
-    flex: 1;
-    border-left: 1px solid var(--border-color);
-    padding-left: 24px;
-  }
-  .theme-title-tag {
-    display: inline-block;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 4px;
-    margin-bottom: 6px;
-  }
-  .theme-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 6px; }
-  .theme-intro { font-size: 13px; color: #a4adba; line-height: 1.5; margin-bottom: 14px; }
-  .specs-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    background: rgba(0,0,0,0.25);
-    padding: 10px 14px;
-    border-radius: 6px;
-    border: 1px solid #1a1e26;
-  }
-  .spec-item-title { font-size: 11px; color: #626d7e; margin-bottom: 2px; }
-  .spec-item-val { font-size: 12px; font-weight: 600; color: #d0d7e2; }
+    .screen-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
 
-  /* ===================== 流派一：瑞士大字阶排版流 ===================== */
-  .theme-swiss { background: #000000; color: #e5e5e5; }
-  .swiss-top { height: 13px; display: flex; justify-content: space-between; padding: 1px 4px; font-size: 7px; color: #666; border-bottom: 1px solid #161616; }
-  .swiss-item { padding: 2px 6px; height: 43px; border-bottom: 1px solid #111; }
-  .swiss-label-row { display: flex; justify-content: space-between; align-items: center; }
-  .swiss-label { font-size: 8px; color: #777; font-weight: bold; }
-  .swiss-tag { font-size: 6px; padding: 1px 3px; border-radius: 2px; font-weight: bold; }
-  .swiss-val-row { margin-top: -1px; display: flex; align-items: baseline; }
-  .swiss-val { font-size: 24px; font-weight: 900; line-height: 1; letter-spacing: -1px; }
-  .swiss-unit { font-size: 9px; margin-left: 2px; color: #666; }
-  .swiss-net { height: 16px; padding: 2px 4px; font-size: 7px; color: #888; display: flex; justify-content: space-between; align-items: center; background: #080808; }
-  
-  /* 瑞士非监控页：极简时钟历法 */
-  .swiss-clock-hero { padding: 6px 8px; text-align: center; border-bottom: 1px solid #141414; }
-  .swiss-clock-time { font-size: 26px; font-weight: 900; color: #00ffcc; line-height: 1.1; letter-spacing: -0.5px; }
-  .swiss-clock-sec { font-size: 8px; color: #666; margin-top: 2px; }
-  .swiss-info-card { padding: 4px 6px; height: 35px; border-bottom: 1px solid #111; display: flex; flex-direction: column; justify-content: center; }
-  .swiss-info-title { font-size: 7px; color: #666; }
-  .swiss-info-content { font-size: 11px; font-weight: bold; color: #f0f0f0; margin-top: 1px; }
+    .screen-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
 
-  /* ===================== 流派二：复古字符终端流 ===================== */
-  .theme-tui { background: #020b04; color: #00ff66; border: 1px solid #003311; }
-  .tui-header { background: #00ff66; color: #020b04; font-size: 7px; font-weight: bold; padding: 1px 4px; display: flex; justify-content: space-between; }
-  .tui-item { padding: 3px 5px; border-bottom: 1px dashed #003311; }
-  .tui-title-row { display: flex; justify-content: space-between; font-size: 8px; margin-bottom: 2px; }
-  .tui-bar-row { font-size: 8px; letter-spacing: 1px; line-height: 1; font-family: monospace; }
-  .tui-dim { color: #00441a; }
-  .tui-mid { color: #88ff00; }
-  .tui-net { font-size: 7px; padding: 3px 5px; color: #00cc55; background: #031407; }
-  
-  /* 终端非监控页：内核监控与系统详情 */
-  .tui-log-box { padding: 3px 5px; font-size: 7px; line-height: 1.4; color: #00ee55; }
-  .tui-log-line { display: flex; justify-content: space-between; margin-bottom: 2px; border-bottom: 1px dotted #00290e; padding-bottom: 1px; }
-  .tui-prompt { color: #88ff00; font-weight: bold; padding: 2px 5px; font-size: 7px; background: #001a07; }
+    .screen-label .badge {
+      background: #252a36;
+      color: #a0aec0;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+    }
 
-  /* ===================== 流派三：便当网格磁贴流 ===================== */
-  .theme-bento { background: #0b0c0e; color: #f1f2f4; padding: 3px; }
-  .bento-top { height: 11px; font-size: 7px; color: #666; display: flex; justify-content: space-between; padding: 0 2px 2px 2px; }
-  .bento-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-bottom: 3px; }
-  .bento-tile { background: #14161b; border: 1px solid #1f232b; border-radius: 3px; padding: 4px; position: relative; overflow: hidden; }
-  .bento-tile-wide { background: #14161b; border: 1px solid #1f232b; border-radius: 3px; padding: 4px 6px; margin-bottom: 3px; position: relative; overflow: hidden; }
-  .bento-tag { font-size: 7px; color: #888; margin-bottom: 2px; display: flex; justify-content: space-between; }
-  .bento-num { font-size: 15px; font-weight: bold; line-height: 1; }
-  .bento-sub { font-size: 6px; color: #666; margin-top: 3px; }
-  .bento-strip { position: absolute; bottom: 0; left: 0; right: 0; height: 2px; }
-  .bento-net { background: #14161b; border: 1px solid #1f232b; border-radius: 3px; padding: 3px 6px; font-size: 7px; display: flex; justify-content: space-between; color: #999; }
-  
-  /* 便当非监控页：日程生活微卡片 */
-  .bento-clock-tile { background: #14161b; border: 1px solid #1f232b; border-radius: 3px; padding: 5px; text-align: center; margin-bottom: 3px; }
-  .bento-clock-text { font-size: 17px; font-weight: 900; color: #38bdf8; line-height: 1.1; }
-  .bento-clock-date { font-size: 7px; color: #888; margin-top: 2px; }
+    .screen-bezel {
+      width: 200px;
+      height: 250px;
+      background: var(--bezel-color);
+      border: 3px solid var(--bezel-border);
+      border-radius: 7px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+      position: relative;
+      padding: 6px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
 
-  /* ===================== 流派四：工业示波时序波形流 ===================== */
-  .theme-scope { background: #050a0e; color: #e2f1f8; font-size: 7px; }
-  .scope-top { background: #09141c; border-bottom: 1px solid #142838; padding: 1px 4px; font-size: 6px; color: #4b728e; display: flex; justify-content: space-between; }
-  .scope-row { padding: 2px 4px; height: 44px; border-bottom: 1px solid #0f1d28; display: flex; align-items: center; justify-content: space-between; }
-  .scope-meta { width: 44px; }
-  .scope-tag { font-size: 7px; color: #5a829e; font-weight: bold; }
-  .scope-val { font-size: 14px; font-weight: bold; line-height: 1.1; }
-  .scope-box {
-    width: 72px; height: 36px; background: #071017; border: 1px solid #162b3a; position: relative;
-    background-image: linear-gradient(#0e202d 1px, transparent 1px), linear-gradient(90deg, #0e202d 1px, transparent 1px);
-    background-size: 12px 12px;
-  }
-  .scope-svg { width: 100%; height: 100%; display: block; }
-  .scope-net { padding: 2px 4px; background: #071118; font-size: 7px; color: #638fae; display: flex; justify-content: space-between; }
-  
-  /* 示波非监控页：遥测频谱大波形窗 */
-  .scope-hero-box {
-    margin: 4px; height: 74px; background: #060e14; border: 1px solid #1a3547; position: relative;
-    background-image: linear-gradient(#0f2330 1px, transparent 1px), linear-gradient(90deg, #0f2330 1px, transparent 1px);
-    background-size: 10px 10px;
-  }
-  .scope-specs-list { padding: 2px 5px; font-size: 7px; color: #7fa5c2; line-height: 1.4; }
+    /* 逻辑尺寸严格 128x160，等比缩放适配 200x250 外框 (scale 1.468) */
+    .screen-viewport {
+      width: 128px;
+      height: 160px;
+      transform: scale(1.468);
+      transform-origin: center center;
+      image-rendering: pixelated;
+      overflow: hidden;
+      position: relative;
+      user-select: none;
+      font-family: "Courier New", Courier, monospace, ui-monospace;
+      font-variant-numeric: tabular-nums;
+    }
 
-  /* ===================== 流派五：赛博战术机甲 HUD 流 ===================== */
-  .theme-hud { background: #040508; color: #00f0ff; }
-  .hud-top {
-    height: 14px; background: #090c14; border-bottom: 1px solid #142033;
-    clip-path: polygon(0 0, 100% 0, 100% 8px, calc(100% - 8px) 14px, 0 14px);
-    padding: 2px 6px; font-size: 7px; color: #00f0ff; letter-spacing: 0.5px;
-    display: flex; justify-content: space-between;
-  }
-  .hud-item {
-    margin: 2px 4px; height: 42px; background: #070a12; border-left: 2px solid #00f0ff;
-    border-top: 1px solid #10192a; border-bottom: 1px solid #10192a; border-right: 1px solid #10192a;
-    padding: 2px 4px; display: flex; justify-content: space-between; position: relative;
-  }
-  .hud-info { display: flex; flex-direction: column; justify-content: center; }
-  .hud-code { font-size: 6px; color: #507090; }
-  .hud-num { font-size: 18px; font-weight: 900; line-height: 1; font-style: italic; }
-  .hud-meter { width: 28px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: flex-end; }
-  .hud-seg { height: 3px; background: #111b2b; border-radius: 1px; }
-  .hud-net {
-    margin: 2px 4px 0 4px; background: #060910; border-top: 1px solid #142033;
-    padding: 2px 4px; font-size: 7px; color: #ff0055; display: flex; justify-content: space-between;
-  }
-  
-  /* 战术非监控页：机体雷达巡检综述 */
-  .hud-panel-full { margin: 3px 4px; padding: 4px; background: #070a14; border: 1px solid #152238; border-left: 2px solid #ff0055; font-size: 7px; }
-  .hud-row { display: flex; justify-content: space-between; margin-bottom: 3px; border-bottom: 1px solid #0f1828; padding-bottom: 2px; }
-  .hud-alert { color: #ff0055; font-weight: bold; }
-</style>
+    .theme-desc-panel {
+      flex: 1;
+      border-left: 1px solid var(--border-color);
+      padding-left: 24px;
+    }
+
+    .theme-title-tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+
+    .theme-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+
+    .theme-intro {
+      font-size: 13px;
+      color: #a4adba;
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+
+    .specs-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid #1a1e26;
+    }
+
+    .spec-item-title {
+      font-size: 11px;
+      color: #626d7e;
+      margin-bottom: 2px;
+    }
+
+    .spec-item-val {
+      font-size: 12px;
+      font-weight: 600;
+      color: #d0d7e2;
+    }
+
+    /* ===================== 流派一：瑞士大字阶排版流 ===================== */
+    .theme-swiss {
+      background: #000000;
+      color: #e5e5e5;
+    }
+
+    .swiss-top {
+      height: 13px;
+      display: flex;
+      justify-content: space-between;
+      padding: 1px 4px;
+      font-size: 7px;
+      color: #666;
+      border-bottom: 1px solid #161616;
+    }
+
+    .swiss-item {
+      padding: 2px 6px;
+      height: 43px;
+      border-bottom: 1px solid #111;
+    }
+
+    .swiss-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .swiss-label {
+      font-size: 8px;
+      color: #777;
+      font-weight: bold;
+    }
+
+    .swiss-tag {
+      font-size: 6px;
+      padding: 1px 3px;
+      border-radius: 2px;
+      font-weight: bold;
+    }
+
+    .swiss-val-row {
+      margin-top: -1px;
+      display: flex;
+      align-items: baseline;
+    }
+
+    .swiss-val {
+      font-size: 24px;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -1px;
+    }
+
+    .swiss-unit {
+      font-size: 9px;
+      margin-left: 2px;
+      color: #666;
+    }
+
+    .swiss-net {
+      height: 16px;
+      padding: 2px 4px;
+      font-size: 7px;
+      color: #888;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #080808;
+    }
+
+    /* 瑞士非监控页：极简时钟历法 */
+    .swiss-clock-hero {
+      padding: 6px 8px;
+      text-align: center;
+      border-bottom: 1px solid #141414;
+    }
+
+    .swiss-clock-time {
+      font-size: 26px;
+      font-weight: 900;
+      color: #00ffcc;
+      line-height: 1.1;
+      letter-spacing: -0.5px;
+    }
+
+    .swiss-clock-sec {
+      font-size: 8px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    .swiss-info-card {
+      padding: 4px 6px;
+      height: 35px;
+      border-bottom: 1px solid #111;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .swiss-info-title {
+      font-size: 7px;
+      color: #666;
+    }
+
+    .swiss-info-content {
+      font-size: 11px;
+      font-weight: bold;
+      color: #f0f0f0;
+      margin-top: 1px;
+    }
+
+    /* ===================== 流派二：复古字符终端流 ===================== */
+    .theme-tui {
+      background: #020b04;
+      color: #00ff66;
+      border: 1px solid #003311;
+    }
+
+    .tui-header {
+      background: #00ff66;
+      color: #020b04;
+      font-size: 7px;
+      font-weight: bold;
+      padding: 1px 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .tui-item {
+      padding: 3px 5px;
+      border-bottom: 1px dashed #003311;
+    }
+
+    .tui-title-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 8px;
+      margin-bottom: 2px;
+    }
+
+    .tui-bar-row {
+      font-size: 8px;
+      letter-spacing: 1px;
+      line-height: 1;
+      font-family: monospace;
+    }
+
+    .tui-dim {
+      color: #00441a;
+    }
+
+    .tui-mid {
+      color: #88ff00;
+    }
+
+    .tui-net {
+      font-size: 7px;
+      padding: 3px 5px;
+      color: #00cc55;
+      background: #031407;
+    }
+
+    /* 终端非监控页：内核监控与系统详情 */
+    .tui-log-box {
+      padding: 3px 5px;
+      font-size: 7px;
+      line-height: 1.4;
+      color: #00ee55;
+    }
+
+    .tui-log-line {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2px;
+      border-bottom: 1px dotted #00290e;
+      padding-bottom: 1px;
+    }
+
+    .tui-prompt {
+      color: #88ff00;
+      font-weight: bold;
+      padding: 2px 5px;
+      font-size: 7px;
+      background: #001a07;
+    }
+
+    /* ===================== 流派三：便当网格磁贴流 ===================== */
+    .theme-bento {
+      background: #0b0c0e;
+      color: #f1f2f4;
+      padding: 3px;
+    }
+
+    .bento-top {
+      height: 11px;
+      font-size: 7px;
+      color: #666;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 2px 2px 2px;
+    }
+
+    .bento-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+      margin-bottom: 3px;
+    }
+
+    .bento-tile {
+      background: #14161b;
+      border: 1px solid #1f232b;
+      border-radius: 3px;
+      padding: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bento-tile-wide {
+      background: #14161b;
+      border: 1px solid #1f232b;
+      border-radius: 3px;
+      padding: 4px 6px;
+      margin-bottom: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bento-tag {
+      font-size: 7px;
+      color: #888;
+      margin-bottom: 2px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .bento-num {
+      font-size: 15px;
+      font-weight: bold;
+      line-height: 1;
+    }
+
+    .bento-sub {
+      font-size: 6px;
+      color: #666;
+      margin-top: 3px;
+    }
+
+    .bento-strip {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+    }
+
+    .bento-net {
+      background: #14161b;
+      border: 1px solid #1f232b;
+      border-radius: 3px;
+      padding: 3px 6px;
+      font-size: 7px;
+      display: flex;
+      justify-content: space-between;
+      color: #999;
+    }
+
+    /* 便当非监控页：日程生活微卡片 */
+    .bento-clock-tile {
+      background: #14161b;
+      border: 1px solid #1f232b;
+      border-radius: 3px;
+      padding: 5px;
+      text-align: center;
+      margin-bottom: 3px;
+    }
+
+    .bento-clock-text {
+      font-size: 17px;
+      font-weight: 900;
+      color: #38bdf8;
+      line-height: 1.1;
+    }
+
+    .bento-clock-date {
+      font-size: 7px;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    /* ===================== 流派四：工业示波时序波形流 ===================== */
+    .theme-scope {
+      background: #050a0e;
+      color: #e2f1f8;
+      font-size: 7px;
+    }
+
+    .scope-top {
+      background: #09141c;
+      border-bottom: 1px solid #142838;
+      padding: 1px 4px;
+      font-size: 6px;
+      color: #4b728e;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .scope-row {
+      padding: 2px 4px;
+      height: 44px;
+      border-bottom: 1px solid #0f1d28;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .scope-meta {
+      width: 44px;
+    }
+
+    .scope-tag {
+      font-size: 7px;
+      color: #5a829e;
+      font-weight: bold;
+    }
+
+    .scope-val {
+      font-size: 14px;
+      font-weight: bold;
+      line-height: 1.1;
+    }
+
+    .scope-box {
+      width: 72px;
+      height: 36px;
+      background: #071017;
+      border: 1px solid #162b3a;
+      position: relative;
+      background-image: linear-gradient(#0e202d 1px, transparent 1px), linear-gradient(90deg, #0e202d 1px, transparent 1px);
+      background-size: 12px 12px;
+    }
+
+    .scope-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .scope-net {
+      padding: 2px 4px;
+      background: #071118;
+      font-size: 7px;
+      color: #638fae;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* 示波非监控页：遥测频谱大波形窗 */
+    .scope-hero-box {
+      margin: 4px;
+      height: 74px;
+      background: #060e14;
+      border: 1px solid #1a3547;
+      position: relative;
+      background-image: linear-gradient(#0f2330 1px, transparent 1px), linear-gradient(90deg, #0f2330 1px, transparent 1px);
+      background-size: 10px 10px;
+    }
+
+    .scope-specs-list {
+      padding: 2px 5px;
+      font-size: 7px;
+      color: #7fa5c2;
+      line-height: 1.4;
+    }
+
+    /* ===================== 流派五：赛博战术机甲 HUD 流 ===================== */
+    .theme-hud {
+      background: #040508;
+      color: #00f0ff;
+    }
+
+    .hud-top {
+      height: 14px;
+      background: #090c14;
+      border-bottom: 1px solid #142033;
+      clip-path: polygon(0 0, 100% 0, 100% 8px, calc(100% - 8px) 14px, 0 14px);
+      padding: 2px 6px;
+      font-size: 7px;
+      color: #00f0ff;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .hud-item {
+      margin: 2px 4px;
+      height: 42px;
+      background: #070a12;
+      border-left: 2px solid #00f0ff;
+      border-top: 1px solid #10192a;
+      border-bottom: 1px solid #10192a;
+      border-right: 1px solid #10192a;
+      padding: 2px 4px;
+      display: flex;
+      justify-content: space-between;
+      position: relative;
+    }
+
+    .hud-info {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .hud-code {
+      font-size: 6px;
+      color: #507090;
+    }
+
+    .hud-num {
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1;
+      font-style: italic;
+    }
+
+    .hud-meter {
+      width: 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-evenly;
+      align-items: flex-end;
+    }
+
+    .hud-seg {
+      height: 3px;
+      background: #111b2b;
+      border-radius: 1px;
+    }
+
+    .hud-net {
+      margin: 2px 4px 0 4px;
+      background: #060910;
+      border-top: 1px solid #142033;
+      padding: 2px 4px;
+      font-size: 7px;
+      color: #ff0055;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* 战术非监控页：机体雷达巡检综述 */
+    .hud-panel-full {
+      margin: 3px 4px;
+      padding: 4px;
+      background: #070a14;
+      border: 1px solid #152238;
+      border-left: 2px solid #ff0055;
+      font-size: 7px;
+    }
+
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 3px;
+      border-bottom: 1px solid #0f1828;
+      padding-bottom: 2px;
+    }
+
+    .hud-alert {
+      color: #ff0055;
+      font-weight: bold;
+    }
+  </style>
 </head>
+
 <body>
 
-<header>
-  <div>
-    <h1>ST7735S 128×160 桌面屏：五套多风格主题双页面完整渲染规范</h1>
-    <div class="subtitle">严格遵循中文语言规范（仅保留 CPU、GPU） | 页面均内嵌秒级实时时间 | 像素级 1.875× 等比仿真</div>
-  </div>
-</header>
+  <header>
+    <div>
+      <h1>ST7735S 128×160 桌面屏：五套多风格主题双页面完整渲染规范</h1>
+      <div class="subtitle">严格遵循中文语言规范（仅保留 CPU、GPU） | 页面均内嵌秒级实时时间 | 像素级 1.875× 等比仿真</div>
+    </div>
+  </header>
 
-<main>
+  <main>
 
-  <!-- 1. 瑞士大字阶排版流 -->
-  <section class="theme-section">
-    <div class="screens-pair">
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 A</span> 电脑监控页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-swiss">
-            <div class="swiss-top">
-              <span>● 主机联机</span>
-              <span>12:34:56</span>
+    <!-- 1. 瑞士大字阶排版流 -->
+    <section class="theme-section">
+      <div class="screens-pair">
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 A</span> 电脑监控页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-swiss">
+              <div class="swiss-top">
+                <span>● 主机联机</span>
+                <span>12:34:56</span>
+              </div>
+              <div class="swiss-item">
+                <div class="swiss-label-row">
+                  <span class="swiss-label">CPU 处理器</span>
+                  <span class="swiss-tag" style="background:#00382f; color:#00ffcc;">[正常]</span>
+                </div>
+                <div class="swiss-val-row">
+                  <span class="swiss-val" style="color:#00ffcc;">43</span>
+                  <span class="swiss-unit">%</span>
+                </div>
+              </div>
+              <div class="swiss-item">
+                <div class="swiss-label-row">
+                  <span class="swiss-label">GPU 显卡</span>
+                  <span class="swiss-tag" style="background:#222; color:#555;">[待机]</span>
+                </div>
+                <div class="swiss-val-row">
+                  <span class="swiss-val" style="color:#444444;">00</span>
+                  <span class="swiss-unit">%</span>
+                </div>
+              </div>
+              <div class="swiss-item">
+                <div class="swiss-label-row">
+                  <span class="swiss-label">系统内存</span>
+                  <span class="swiss-tag" style="background:#3a2800; color:#ffaa00;">[较忙]</span>
+                </div>
+                <div class="swiss-val-row">
+                  <span class="swiss-val" style="color:#ffaa00;">61</span>
+                  <span class="swiss-unit">%</span>
+                </div>
+              </div>
+              <div class="swiss-net">
+                <span>下行: 1.2 兆/秒</span>
+                <span>上行: 0.4 兆/秒</span>
+              </div>
             </div>
-            <div class="swiss-item">
-              <div class="swiss-label-row">
-                <span class="swiss-label">CPU 处理器</span>
-                <span class="swiss-tag" style="background:#00382f; color:#00ffcc;">[正常]</span>
+          </div>
+        </div>
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 B</span> 极简时钟历法页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-swiss">
+              <div class="swiss-top">
+                <span>● 无线连接</span>
+                <span>标准时间</span>
               </div>
-              <div class="swiss-val-row">
-                <span class="swiss-val" style="color:#00ffcc;">43</span>
-                <span class="swiss-unit">%</span>
+              <div class="swiss-clock-hero">
+                <div class="swiss-clock-time">12:34</div>
+                <div class="swiss-clock-sec">:56 秒</div>
               </div>
-            </div>
-            <div class="swiss-item">
-              <div class="swiss-label-row">
-                <span class="swiss-label">GPU 显卡</span>
-                <span class="swiss-tag" style="background:#222; color:#555;">[待机]</span>
+              <div class="swiss-info-card">
+                <div class="swiss-info-title">公历日期</div>
+                <div class="swiss-info-content">11月06日 星期五</div>
               </div>
-              <div class="swiss-val-row">
-                <span class="swiss-val" style="color:#444444;">00</span>
-                <span class="swiss-unit">%</span>
+              <div class="swiss-info-card">
+                <div class="swiss-info-title">传统农历</div>
+                <div class="swiss-info-content" style="color:#ffaa00;">丙午年 十月初七</div>
               </div>
-            </div>
-            <div class="swiss-item">
-              <div class="swiss-label-row">
-                <span class="swiss-label">系统内存</span>
-                <span class="swiss-tag" style="background:#3a2800; color:#ffaa00;">[较忙]</span>
+              <div class="swiss-net">
+                <span style="color:#00ffcc;">今日天气</span>
+                <span>晴 23度 宁波</span>
               </div>
-              <div class="swiss-val-row">
-                <span class="swiss-val" style="color:#ffaa00;">61</span>
-                <span class="swiss-unit">%</span>
-              </div>
-            </div>
-            <div class="swiss-net">
-              <span>下行: 1.2 兆/秒</span>
-              <span>上行: 0.4 兆/秒</span>
             </div>
           </div>
         </div>
       </div>
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 B</span> 极简时钟历法页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-swiss">
-            <div class="swiss-top">
-              <span>● 无线连接</span>
-              <span>标准时间</span>
+      <div class="theme-desc-panel">
+        <span class="theme-title-tag" style="background:#1e293b; color:#38bdf8;">流派一</span>
+        <div class="theme-title">瑞士大字阶排版流 (Swiss Typographic)</div>
+        <div class="theme-intro">
+          以极端纯粹的字阶张力打破横向导轨束缚。数值即图元，字号即层级。双页面共享秒级顶栏或居中秒数，利用局部脏矩形仅重绘变动数字，无撕裂感。
+        </div>
+        <div class="specs-row">
+          <div>
+            <div class="spec-item-title">时间组件形式</div>
+            <div class="spec-item-val">监控页顶栏右侧 / 综述页 26px 大字</div>
+          </div>
+          <div>
+            <div class="spec-item-title">防闪烁机制</div>
+            <div class="spec-item-val">固定字符位置，局部单切片覆盖更新</div>
+          </div>
+          <div>
+            <div class="spec-item-title">中文表达规范</div>
+            <div class="spec-item-val">下行/上行/兆每秒，定性微标[正常/待机]</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 复古字符终端流 -->
+    <section class="theme-section">
+      <div class="screens-pair">
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 A</span> 终端监控页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-tui">
+              <div class="tui-header">
+                <span>> 终端 12:34:56</span>
+                <span>在线</span>
+              </div>
+              <div class="tui-item">
+                <div class="tui-title-row">
+                  <span>[CPU] 43.0%</span>
+                  <span>稳定</span>
+                </div>
+                <div class="tui-bar-row">
+                  <span>■■■■</span><span class="tui-dim">□□□□□□</span>
+                </div>
+              </div>
+              <div class="tui-item">
+                <div class="tui-title-row">
+                  <span style="color:#007722;">[GPU] 00.0%</span>
+                  <span style="color:#007722;">休眠</span>
+                </div>
+                <div class="tui-bar-row tui-dim">
+                  <span>□□□□□□□□□□</span>
+                </div>
+              </div>
+              <div class="tui-item">
+                <div class="tui-title-row">
+                  <span class="tui-mid">[内存] 61.2%</span>
+                  <span class="tui-mid">负荷</span>
+                </div>
+                <div class="tui-bar-row">
+                  <span class="tui-mid">■■■■■■</span><span class="tui-dim">□□□□</span>
+                </div>
+              </div>
+              <div class="tui-net">
+                <div style="display:flex; justify-content:space-between;">
+                  <span>下行 1.2 兆/秒</span>
+                  <span>上行 0.4 兆/秒</span>
+                </div>
+              </div>
             </div>
-            <div class="swiss-clock-hero">
-              <div class="swiss-clock-time">12:34</div>
-              <div class="swiss-clock-sec">:56 秒</div>
-            </div>
-            <div class="swiss-info-card">
-              <div class="swiss-info-title">公历日期</div>
-              <div class="swiss-info-content">11月06日 星期五</div>
-            </div>
-            <div class="swiss-info-card">
-              <div class="swiss-info-title">传统农历</div>
-              <div class="swiss-info-content" style="color:#ffaa00;">丙午年 十月初七</div>
-            </div>
-            <div class="swiss-net">
-              <span style="color:#00ffcc;">今日天气</span>
-              <span>晴 23度 宁波</span>
+          </div>
+        </div>
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 B</span> 内核日志综述页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-tui">
+              <div class="tui-header">
+                <span>> 内核 12:34:56</span>
+                <span>就绪</span>
+              </div>
+              <div class="tui-log-box">
+                <div class="tui-log-line"><span>设备: 微控制器</span><span style="color:#88ff00;">双核</span></div>
+                <div class="tui-log-line"><span>时间校准:</span><span>对时正常</span></div>
+                <div class="tui-log-line"><span>天气节点:</span><span>晴朗 23度</span></div>
+                <div class="tui-log-line"><span>干支农历:</span><span>十月初七</span></div>
+                <div class="tui-log-line"><span>监督任务:</span><span>正常喂狗</span></div>
+                <div class="tui-log-line"><span>网络广播:</span><span>端口8765</span></div>
+              </div>
+              <div class="tui-prompt">指令就绪_</div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="theme-desc-panel">
-      <span class="theme-title-tag" style="background:#1e293b; color:#38bdf8;">流派一</span>
-      <div class="theme-title">瑞士大字阶排版流 (Swiss Typographic)</div>
-      <div class="theme-intro">
-        以极端纯粹的字阶张力打破横向导轨束缚。数值即图元，字号即层级。双页面共享秒级顶栏或居中秒数，利用局部脏矩形仅重绘变动数字，无撕裂感。
+      <div class="theme-desc-panel">
+        <span class="theme-title-tag" style="background:#052e16; color:#4ade80;">流派二</span>
+        <div class="theme-title">复古字符终端流 (TUI Console)</div>
+        <div class="theme-intro">
+          向 DEC VT220 磷光屏致敬。监控页采用 10 段离散字符块；综述页以标准系统内核日志形式呈现各服务签到状态。
+        </div>
+        <div class="specs-row">
+          <div>
+            <div class="spec-item-title">时间组件形式</div>
+            <div class="spec-item-val">终端标题行反色高光内嵌秒级时间</div>
+          </div>
+          <div>
+            <div class="spec-item-title">防闪烁机制</div>
+            <div class="spec-item-val">字符级十位步进刷新，无持续浮点重绘</div>
+          </div>
+          <div>
+            <div class="spec-item-title">中文表达规范</div>
+            <div class="spec-item-val">稳定/休眠/负荷/对时正常/正常喂狗</div>
+          </div>
+        </div>
       </div>
-      <div class="specs-row">
-        <div>
-          <div class="spec-item-title">时间组件形式</div>
-          <div class="spec-item-val">监控页顶栏右侧 / 综述页 26px 大字</div>
-        </div>
-        <div>
-          <div class="spec-item-title">防闪烁机制</div>
-          <div class="spec-item-val">固定字符位置，局部单切片覆盖更新</div>
-        </div>
-        <div>
-          <div class="spec-item-title">中文表达规范</div>
-          <div class="spec-item-val">下行/上行/兆每秒，定性微标[正常/待机]</div>
-        </div>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- 2. 复古字符终端流 -->
-  <section class="theme-section">
-    <div class="screens-pair">
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 A</span> 终端监控页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-tui">
-            <div class="tui-header">
-              <span>> 终端 12:34:56</span>
-              <span>在线</span>
-            </div>
-            <div class="tui-item">
-              <div class="tui-title-row">
-                <span>[CPU] 43.0%</span>
-                <span>稳定</span>
+    <!-- 3. 便当网格磁贴流 -->
+    <section class="theme-section">
+      <div class="screens-pair">
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 A</span> 磁贴监控页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-bento">
+              <div class="bento-top">
+                <span>主机: 联机</span>
+                <span>12:34:56</span>
               </div>
-              <div class="tui-bar-row">
-                <span>■■■■</span><span class="tui-dim">□□□□□□</span>
+              <div class="bento-grid">
+                <div class="bento-tile">
+                  <div class="bento-tag"><span>CPU</span><span>43%</span></div>
+                  <div class="bento-num" style="color:#00e5a3;">43%</div>
+                  <div class="bento-sub">● 负荷正常</div>
+                  <div class="bento-strip" style="background:#00e5a3;"></div>
+                </div>
+                <div class="bento-tile">
+                  <div class="bento-tag"><span>GPU</span><span>0%</span></div>
+                  <div class="bento-num" style="color:#555;">--</div>
+                  <div class="bento-sub" style="color:#444;">○ 核心休眠</div>
+                  <div class="bento-strip" style="background:#333;"></div>
+                </div>
               </div>
-            </div>
-            <div class="tui-item">
-              <div class="tui-title-row">
-                <span style="color:#007722;">[GPU] 00.0%</span>
-                <span style="color:#007722;">休眠</span>
+              <div class="bento-tile-wide">
+                <div class="bento-tag"><span>系统内存占用率</span><span style="color:#ffb300;">61%</span></div>
+                <div class="bento-num" style="color:#ffb300; font-size:14px;">4.9 <span
+                    style="font-size:8px; color:#888;">/ 8.0 吉字节</span></div>
+                <div class="bento-strip" style="background:#ffb300;"></div>
               </div>
-              <div class="tui-bar-row tui-dim">
-                <span>□□□□□□□□□□</span>
-              </div>
-            </div>
-            <div class="tui-item">
-              <div class="tui-title-row">
-                <span class="tui-mid">[内存] 61.2%</span>
-                <span class="tui-mid">负荷</span>
-              </div>
-              <div class="tui-bar-row">
-                <span class="tui-mid">■■■■■■</span><span class="tui-dim">□□□□</span>
-              </div>
-            </div>
-            <div class="tui-net">
-              <div style="display:flex; justify-content:space-between;">
+              <div class="bento-net">
                 <span>下行 1.2 兆/秒</span>
                 <span>上行 0.4 兆/秒</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 B</span> 内核日志综述页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-tui">
-            <div class="tui-header">
-              <span>> 内核 12:34:56</span>
-              <span>就绪</span>
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 B</span> 桌面生活看板页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-bento">
+              <div class="bento-top">
+                <span>无线连接正常</span>
+                <span>东八区</span>
+              </div>
+              <div class="bento-clock-tile">
+                <div class="bento-clock-text">12:34:56</div>
+                <div class="bento-clock-date">2026年11月6日 星期五</div>
+              </div>
+              <div class="bento-grid">
+                <div class="bento-tile" style="height:62px;">
+                  <div class="bento-tag"><span>农历民俗</span></div>
+                  <div style="font-size:10px; font-weight:bold; color:#ffb300; margin-top:4px;">丙午马年</div>
+                  <div style="font-size:9px; color:#ddd;">十月初七</div>
+                  <div class="bento-strip" style="background:#ffb300;"></div>
+                </div>
+                <div class="bento-tile" style="height:62px;">
+                  <div class="bento-tag"><span>实况气象</span></div>
+                  <div style="font-size:10px; font-weight:bold; color:#38bdf8; margin-top:4px;">晴朗</div>
+                  <div style="font-size:9px; color:#ddd;">23 摄氏度</div>
+                  <div class="bento-strip" style="background:#38bdf8;"></div>
+                </div>
+              </div>
+              <div class="bento-net">
+                <span>城市: 宁波</span>
+                <span>定位成功</span>
+              </div>
             </div>
-            <div class="tui-log-box">
-              <div class="tui-log-line"><span>设备: 微控制器</span><span style="color:#88ff00;">双核</span></div>
-              <div class="tui-log-line"><span>时间校准:</span><span>对时正常</span></div>
-              <div class="tui-log-line"><span>天气节点:</span><span>晴朗 23度</span></div>
-              <div class="tui-log-line"><span>干支农历:</span><span>十月初七</span></div>
-              <div class="tui-log-line"><span>监督任务:</span><span>正常喂狗</span></div>
-              <div class="tui-log-line"><span>网络广播:</span><span>端口8765</span></div>
-            </div>
-            <div class="tui-prompt">指令就绪_</div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="theme-desc-panel">
-      <span class="theme-title-tag" style="background:#052e16; color:#4ade80;">流派二</span>
-      <div class="theme-title">复古字符终端流 (TUI Console)</div>
-      <div class="theme-intro">
-        向 DEC VT220 磷光屏致敬。监控页采用 10 段离散字符块；综述页以标准系统内核日志形式呈现各服务签到状态。
+      <div class="theme-desc-panel">
+        <span class="theme-title-tag" style="background:#312e81; color:#a5b4fc;">流派三</span>
+        <div class="theme-title">便当网格磁贴流 (Bento Grid)</div>
+        <div class="theme-intro">
+          非对称几何模块化封装。监控页以 2px 战术底色带指示状态；非监控页组合时钟大磁贴与农历、实况天气微磁贴。
+        </div>
+        <div class="specs-row">
+          <div>
+            <div class="spec-item-title">时间组件形式</div>
+            <div class="spec-item-val">监控页顶栏精确到秒 / 综述页独立大磁贴</div>
+          </div>
+          <div>
+            <div class="spec-item-title">防闪烁机制</div>
+            <div class="spec-item-val">磁贴边界清晰，各区域脏矩形互不干扰</div>
+          </div>
+          <div>
+            <div class="spec-item-title">中文表达规范</div>
+            <div class="spec-item-val">吉字节/负荷正常/农历民俗/摄氏度</div>
+          </div>
+        </div>
       </div>
-      <div class="specs-row">
-        <div>
-          <div class="spec-item-title">时间组件形式</div>
-          <div class="spec-item-val">终端标题行反色高光内嵌秒级时间</div>
-        </div>
-        <div>
-          <div class="spec-item-title">防闪烁机制</div>
-          <div class="spec-item-val">字符级十位步进刷新，无持续浮点重绘</div>
-        </div>
-        <div>
-          <div class="spec-item-title">中文表达规范</div>
-          <div class="spec-item-val">稳定/休眠/负荷/对时正常/正常喂狗</div>
-        </div>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- 3. 便当网格磁贴流 -->
-  <section class="theme-section">
-    <div class="screens-pair">
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 A</span> 磁贴监控页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-bento">
-            <div class="bento-top">
-              <span>主机: 联机</span>
-              <span>12:34:56</span>
-            </div>
-            <div class="bento-grid">
-              <div class="bento-tile">
-                <div class="bento-tag"><span>CPU</span><span>43%</span></div>
-                <div class="bento-num" style="color:#00e5a3;">43%</div>
-                <div class="bento-sub">● 负荷正常</div>
-                <div class="bento-strip" style="background:#00e5a3;"></div>
+    <!-- 4. 工业示波时序波形流 -->
+    <section class="theme-section">
+      <div class="screens-pair">
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 A</span> 示波监控页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-scope">
+              <div class="scope-top">
+                <span>通道一·监测 12:34:56</span>
+                <span>自动触发</span>
               </div>
-              <div class="bento-tile">
-                <div class="bento-tag"><span>GPU</span><span>0%</span></div>
-                <div class="bento-num" style="color:#555;">--</div>
-                <div class="bento-sub" style="color:#444;">○ 核心休眠</div>
-                <div class="bento-strip" style="background:#333;"></div>
+              <div class="scope-row">
+                <div class="scope-meta">
+                  <div class="scope-tag">CPU</div>
+                  <div class="scope-val" style="color:#00ffcc;">43%</div>
+                </div>
+                <div class="scope-box">
+                  <svg class="scope-svg" viewBox="0 0 72 36" preserveAspectRatio="none">
+                    <path d="M0,28 L8,26 L16,29 L24,14 L32,18 L40,24 L48,15 L56,20 L64,22 L72,20" fill="none"
+                      stroke="#00ffcc" stroke-width="1.2" />
+                    <path d="M0,28 L8,26 L16,29 L24,14 L32,18 L40,24 L48,15 L56,20 L64,22 L72,20 L72,36 L0,36 Z"
+                      fill="rgba(0,255,204,0.1)" />
+                  </svg>
+                </div>
               </div>
-            </div>
-            <div class="bento-tile-wide">
-              <div class="bento-tag"><span>系统内存占用率</span><span style="color:#ffb300;">61%</span></div>
-              <div class="bento-num" style="color:#ffb300; font-size:14px;">4.9 <span style="font-size:8px; color:#888;">/ 8.0 吉字节</span></div>
-              <div class="bento-strip" style="background:#ffb300;"></div>
-            </div>
-            <div class="bento-net">
-              <span>下行 1.2 兆/秒</span>
-              <span>上行 0.4 兆/秒</span>
+              <div class="scope-row">
+                <div class="scope-meta">
+                  <div class="scope-tag">GPU</div>
+                  <div class="scope-val" style="color:#4b6a82;">00%</div>
+                </div>
+                <div class="scope-box">
+                  <svg class="scope-svg" viewBox="0 0 72 36" preserveAspectRatio="none">
+                    <path d="M0,35 L72,35" fill="none" stroke="#254256" stroke-width="1.2" />
+                  </svg>
+                </div>
+              </div>
+              <div class="scope-row">
+                <div class="scope-meta">
+                  <div class="scope-tag">内存</div>
+                  <div class="scope-val" style="color:#ffcc00;">61%</div>
+                </div>
+                <div class="scope-box">
+                  <svg class="scope-svg" viewBox="0 0 72 36" preserveAspectRatio="none">
+                    <path d="M0,16 L15,16 L25,14 L40,15 L55,14 L72,14" fill="none" stroke="#ffcc00"
+                      stroke-width="1.2" />
+                    <path d="M0,16 L15,16 L25,14 L40,15 L55,14 L72,14 L72,36 L0,36 Z" fill="rgba(255,204,0,0.1)" />
+                  </svg>
+                </div>
+              </div>
+              <div class="scope-net">
+                <span>下行 1.2 兆/秒</span>
+                <span>上行 0.4 兆/秒</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 B</span> 桌面生活看板页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-bento">
-            <div class="bento-top">
-              <span>无线连接正常</span>
-              <span>东八区</span>
-            </div>
-            <div class="bento-clock-tile">
-              <div class="bento-clock-text">12:34:56</div>
-              <div class="bento-clock-date">2026年11月6日 星期五</div>
-            </div>
-            <div class="bento-grid">
-              <div class="bento-tile" style="height:62px;">
-                <div class="bento-tag"><span>农历民俗</span></div>
-                <div style="font-size:10px; font-weight:bold; color:#ffb300; margin-top:4px;">丙午马年</div>
-                <div style="font-size:9px; color:#ddd;">十月初七</div>
-                <div class="bento-strip" style="background:#ffb300;"></div>
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 B</span> 网络时序遥测页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-scope">
+              <div class="scope-top">
+                <span>通道二·遥测 12:34:56</span>
+                <span>时序正常</span>
               </div>
-              <div class="bento-tile" style="height:62px;">
-                <div class="bento-tag"><span>实况气象</span></div>
-                <div style="font-size:10px; font-weight:bold; color:#38bdf8; margin-top:4px;">晴朗</div>
-                <div style="font-size:9px; color:#ddd;">23 摄氏度</div>
-                <div class="bento-strip" style="background:#38bdf8;"></div>
-              </div>
-            </div>
-            <div class="bento-net">
-              <span>城市: 宁波</span>
-              <span>定位成功</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="theme-desc-panel">
-      <span class="theme-title-tag" style="background:#312e81; color:#a5b4fc;">流派三</span>
-      <div class="theme-title">便当网格磁贴流 (Bento Grid)</div>
-      <div class="theme-intro">
-        非对称几何模块化封装。监控页以 2px 战术底色带指示状态；非监控页组合时钟大磁贴与农历、实况天气微磁贴。
-      </div>
-      <div class="specs-row">
-        <div>
-          <div class="spec-item-title">时间组件形式</div>
-          <div class="spec-item-val">监控页顶栏精确到秒 / 综述页独立大磁贴</div>
-        </div>
-        <div>
-          <div class="spec-item-title">防闪烁机制</div>
-          <div class="spec-item-val">磁贴边界清晰，各区域脏矩形互不干扰</div>
-        </div>
-        <div>
-          <div class="spec-item-title">中文表达规范</div>
-          <div class="spec-item-val">吉字节/负荷正常/农历民俗/摄氏度</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 4. 工业示波时序波形流 -->
-  <section class="theme-section">
-    <div class="screens-pair">
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 A</span> 示波监控页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-scope">
-            <div class="scope-top">
-              <span>通道一·监测 12:34:56</span>
-              <span>自动触发</span>
-            </div>
-            <div class="scope-row">
-              <div class="scope-meta">
-                <div class="scope-tag">CPU</div>
-                <div class="scope-val" style="color:#00ffcc;">43%</div>
-              </div>
-              <div class="scope-box">
-                <svg class="scope-svg" viewBox="0 0 72 36" preserveAspectRatio="none">
-                  <path d="M0,28 L8,26 L16,29 L24,14 L32,18 L40,24 L48,15 L56,20 L64,22 L72,20" fill="none" stroke="#00ffcc" stroke-width="1.2"/>
-                  <path d="M0,28 L8,26 L16,29 L24,14 L32,18 L40,24 L48,15 L56,20 L64,22 L72,20 L72,36 L0,36 Z" fill="rgba(0,255,204,0.1)"/>
+              <div class="scope-hero-box">
+                <svg class="scope-svg" viewBox="0 0 120 74" preserveAspectRatio="none">
+                  <path d="M0,60 Q20,10 40,55 T80,30 T120,65" fill="none" stroke="#00ffcc" stroke-width="1.2" />
+                  <path d="M0,70 Q30,40 60,68 T120,70" fill="none" stroke="#ffcc00" stroke-width="1" />
                 </svg>
               </div>
-            </div>
-            <div class="scope-row">
-              <div class="scope-meta">
-                <div class="scope-tag">GPU</div>
-                <div class="scope-val" style="color:#4b6a82;">00%</div>
+              <div class="scope-specs-list">
+                <div>下行峰值: 12.8 兆/秒</div>
+                <div>通信延迟: 12 毫秒</div>
+                <div>网络包序号: #000005</div>
+                <div>时间同步源: 阿里云节点</div>
               </div>
-              <div class="scope-box">
-                <svg class="scope-svg" viewBox="0 0 72 36" preserveAspectRatio="none">
-                  <path d="M0,35 L72,35" fill="none" stroke="#254256" stroke-width="1.2"/>
-                </svg>
+              <div class="scope-net">
+                <span>环境温度: 23度</span>
+                <span>天气: 晴</span>
               </div>
-            </div>
-            <div class="scope-row">
-              <div class="scope-meta">
-                <div class="scope-tag">内存</div>
-                <div class="scope-val" style="color:#ffcc00;">61%</div>
-              </div>
-              <div class="scope-box">
-                <svg class="scope-svg" viewBox="0 0 72 36" preserveAspectRatio="none">
-                  <path d="M0,16 L15,16 L25,14 L40,15 L55,14 L72,14" fill="none" stroke="#ffcc00" stroke-width="1.2"/>
-                  <path d="M0,16 L15,16 L25,14 L40,15 L55,14 L72,14 L72,36 L0,36 Z" fill="rgba(255,204,0,0.1)"/>
-                </svg>
-              </div>
-            </div>
-            <div class="scope-net">
-              <span>下行 1.2 兆/秒</span>
-              <span>上行 0.4 兆/秒</span>
             </div>
           </div>
         </div>
       </div>
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 B</span> 网络时序遥测页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-scope">
-            <div class="scope-top">
-              <span>通道二·遥测 12:34:56</span>
-              <span>时序正常</span>
-            </div>
-            <div class="scope-hero-box">
-              <svg class="scope-svg" viewBox="0 0 120 74" preserveAspectRatio="none">
-                <path d="M0,60 Q20,10 40,55 T80,30 T120,65" fill="none" stroke="#00ffcc" stroke-width="1.2"/>
-                <path d="M0,70 Q30,40 60,68 T120,70" fill="none" stroke="#ffcc00" stroke-width="1"/>
-              </svg>
-            </div>
-            <div class="scope-specs-list">
-              <div>下行峰值: 12.8 兆/秒</div>
-              <div>通信延迟: 12 毫秒</div>
-              <div>网络包序号: #000005</div>
-              <div>时间同步源: 阿里云节点</div>
-            </div>
-            <div class="scope-net">
-              <span>环境温度: 23度</span>
-              <span>天气: 晴</span>
-            </div>
+      <div class="theme-desc-panel">
+        <span class="theme-title-tag" style="background:#134e4a; color:#5eead4;">流派四</span>
+        <div class="theme-title">工业示波时序波形流 (Oscilloscope)</div>
+        <div class="theme-intro">
+          以 30 点微型历史折线图（Sparkline）取代单点切片。时序波形精准捕捉卡顿掉帧脉冲；非监控页提供网络时序与延迟频谱分析。
+        </div>
+        <div class="specs-row">
+          <div>
+            <div class="spec-item-title">时间组件形式</div>
+            <div class="spec-item-val">通道监测顶栏内嵌精确到秒时钟</div>
+          </div>
+          <div>
+            <div class="spec-item-title">防闪烁机制</div>
+            <div class="spec-item-val">双缓冲环形队列，Bresenham 画线裁剪</div>
+          </div>
+          <div>
+            <div class="spec-item-title">中文表达规范</div>
+            <div class="spec-item-val">通道一·监测/自动触发/通信延迟/毫秒</div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="theme-desc-panel">
-      <span class="theme-title-tag" style="background:#134e4a; color:#5eead4;">流派四</span>
-      <div class="theme-title">工业示波时序波形流 (Oscilloscope)</div>
-      <div class="theme-intro">
-        以 30 点微型历史折线图（Sparkline）取代单点切片。时序波形精准捕捉卡顿掉帧脉冲；非监控页提供网络时序与延迟频谱分析。
-      </div>
-      <div class="specs-row">
-        <div>
-          <div class="spec-item-title">时间组件形式</div>
-          <div class="spec-item-val">通道监测顶栏内嵌精确到秒时钟</div>
-        </div>
-        <div>
-          <div class="spec-item-title">防闪烁机制</div>
-          <div class="spec-item-val">双缓冲环形队列，Bresenham 画线裁剪</div>
-        </div>
-        <div>
-          <div class="spec-item-title">中文表达规范</div>
-          <div class="spec-item-val">通道一·监测/自动触发/通信延迟/毫秒</div>
-        </div>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- 5. 赛博战术机甲 HUD 流 -->
-  <section class="theme-section">
-    <div class="screens-pair">
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 A</span> 战术监控页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-hud">
-            <div class="hud-top">
-              <span>// 战术抬头 12:34:56</span>
-              <span>联机</span>
+    <!-- 5. 赛博战术机甲 HUD 流 -->
+    <section class="theme-section">
+      <div class="screens-pair">
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 A</span> 战术监控页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-hud">
+              <div class="hud-top">
+                <span>// 战术抬头 12:34:56</span>
+                <span>联机</span>
+              </div>
+              <div class="hud-item" style="border-left-color:#00f0ff;">
+                <div class="hud-info">
+                  <div class="hud-code">[01] CPU 处理器</div>
+                  <div class="hud-num" style="color:#00f0ff;">43.0<span style="font-size:9px;">%</span></div>
+                </div>
+                <div class="hud-meter">
+                  <div class="hud-seg" style="width:24px; background:#00f0ff;"></div>
+                  <div class="hud-seg" style="width:20px; background:#00f0ff;"></div>
+                  <div class="hud-seg" style="width:16px; background:#142838;"></div>
+                  <div class="hud-seg" style="width:12px; background:#142838;"></div>
+                  <div class="hud-seg" style="width:8px; background:#142838;"></div>
+                </div>
+              </div>
+              <div class="hud-item" style="border-left-color:#334455;">
+                <div class="hud-info">
+                  <div class="hud-code">[02] GPU 显卡</div>
+                  <div class="hud-num" style="color:#556677;">00.0<span style="font-size:9px;">%</span></div>
+                </div>
+                <div class="hud-meter">
+                  <div class="hud-seg" style="width:24px; background:#142838;"></div>
+                  <div class="hud-seg" style="width:20px; background:#142838;"></div>
+                  <div class="hud-seg" style="width:16px; background:#142838;"></div>
+                  <div class="hud-seg" style="width:12px; background:#142838;"></div>
+                  <div class="hud-seg" style="width:8px; background:#142838;"></div>
+                </div>
+              </div>
+              <div class="hud-item" style="border-left-color:#ff0055;">
+                <div class="hud-info">
+                  <div class="hud-code">[03] 内存堆栈</div>
+                  <div class="hud-num" style="color:#ff0055;">61.2<span style="font-size:9px;">%</span></div>
+                </div>
+                <div class="hud-meter">
+                  <div class="hud-seg" style="width:24px; background:#ff0055;"></div>
+                  <div class="hud-seg" style="width:20px; background:#ff0055;"></div>
+                  <div class="hud-seg" style="width:16px; background:#ff0055;"></div>
+                  <div class="hud-seg" style="width:12px; background:#142838;"></div>
+                  <div class="hud-seg" style="width:8px; background:#142838;"></div>
+                </div>
+              </div>
+              <div class="hud-net">
+                <span>下行 1.2 兆/秒</span>
+                <span>上行 0.4 兆/秒</span>
+              </div>
             </div>
-            <div class="hud-item" style="border-left-color:#00f0ff;">
-              <div class="hud-info">
-                <div class="hud-code">[01] CPU 处理器</div>
-                <div class="hud-num" style="color:#00f0ff;">43.0<span style="font-size:9px;">%</span></div>
+          </div>
+        </div>
+        <div class="screen-card">
+          <div class="screen-label"><span class="badge">页面 B</span> 机体巡检综述页</div>
+          <div class="screen-bezel">
+            <div class="screen-viewport theme-hud">
+              <div class="hud-top">
+                <span>// 战术巡检 12:34:56</span>
+                <span>就绪</span>
               </div>
-              <div class="hud-meter">
-                <div class="hud-seg" style="width:24px; background:#00f0ff;"></div>
-                <div class="hud-seg" style="width:20px; background:#00f0ff;"></div>
-                <div class="hud-seg" style="width:16px; background:#142838;"></div>
-                <div class="hud-seg" style="width:12px; background:#142838;"></div>
-                <div class="hud-seg" style="width:8px; background:#142838;"></div>
+              <div class="hud-panel-full">
+                <div class="hud-row"><span>机体护盾:</span><span style="color:#00f0ff;">100% 满充</span></div>
+                <div class="hud-row"><span>双核反应堆:</span><span>正常运转</span></div>
+                <div class="hud-row"><span>气象环境:</span><span>晴朗 23度</span></div>
+                <div class="hud-row"><span>历法时序:</span><span style="color:#ff0055;">十月初七</span></div>
+                <div class="hud-row"><span>看门狗防护:</span><span>硬件锁定</span></div>
               </div>
-            </div>
-            <div class="hud-item" style="border-left-color:#334455;">
-              <div class="hud-info">
-                <div class="hud-code">[02] GPU 显卡</div>
-                <div class="hud-num" style="color:#556677;">00.0<span style="font-size:9px;">%</span></div>
+              <div
+                style="margin:2px 4px; padding:3px; background:#070a14; border:1px solid #142033; font-size:7px; color:#507090;">
+                巡检状态: 扫描完成 // 无异常
               </div>
-              <div class="hud-meter">
-                <div class="hud-seg" style="width:24px; background:#142838;"></div>
-                <div class="hud-seg" style="width:20px; background:#142838;"></div>
-                <div class="hud-seg" style="width:16px; background:#142838;"></div>
-                <div class="hud-seg" style="width:12px; background:#142838;"></div>
-                <div class="hud-seg" style="width:8px; background:#142838;"></div>
+              <div class="hud-net">
+                <span class="hud-alert">状态: 战备正常</span>
+                <span>时间源锁定</span>
               </div>
-            </div>
-            <div class="hud-item" style="border-left-color:#ff0055;">
-              <div class="hud-info">
-                <div class="hud-code">[03] 内存堆栈</div>
-                <div class="hud-num" style="color:#ff0055;">61.2<span style="font-size:9px;">%</span></div>
-              </div>
-              <div class="hud-meter">
-                <div class="hud-seg" style="width:24px; background:#ff0055;"></div>
-                <div class="hud-seg" style="width:20px; background:#ff0055;"></div>
-                <div class="hud-seg" style="width:16px; background:#ff0055;"></div>
-                <div class="hud-seg" style="width:12px; background:#142838;"></div>
-                <div class="hud-seg" style="width:8px; background:#142838;"></div>
-              </div>
-            </div>
-            <div class="hud-net">
-              <span>下行 1.2 兆/秒</span>
-              <span>上行 0.4 兆/秒</span>
             </div>
           </div>
         </div>
       </div>
-      <div class="screen-card">
-        <div class="screen-label"><span class="badge">页面 B</span> 机体巡检综述页</div>
-        <div class="screen-bezel">
-          <div class="screen-viewport theme-hud">
-            <div class="hud-top">
-              <span>// 战术巡检 12:34:56</span>
-              <span>就绪</span>
-            </div>
-            <div class="hud-panel-full">
-              <div class="hud-row"><span>机体护盾:</span><span style="color:#00f0ff;">100% 满充</span></div>
-              <div class="hud-row"><span>双核反应堆:</span><span>正常运转</span></div>
-              <div class="hud-row"><span>气象环境:</span><span>晴朗 23度</span></div>
-              <div class="hud-row"><span>历法时序:</span><span style="color:#ff0055;">十月初七</span></div>
-              <div class="hud-row"><span>看门狗防护:</span><span>硬件锁定</span></div>
-            </div>
-            <div style="margin:2px 4px; padding:3px; background:#070a14; border:1px solid #142033; font-size:7px; color:#507090;">
-              巡检状态: 扫描完成 // 无异常
-            </div>
-            <div class="hud-net">
-              <span class="hud-alert">状态: 战备正常</span>
-              <span>时间源锁定</span>
-            </div>
+      <div class="theme-desc-panel">
+        <span class="theme-title-tag" style="background:#831843; color:#f472b6;">流派五</span>
+        <div class="theme-title">赛博战术机甲 HUD 流 (Tactical Mecha)</div>
+        <div class="theme-intro">
+          科幻战术外骨骼座舱界面。以多阶梯形能量刻度取代传统进度条；非监控页呈现机体护盾、双核状态与环境雷达巡检报告。
+        </div>
+        <div class="specs-row">
+          <div>
+            <div class="spec-item-title">时间组件形式</div>
+            <div class="spec-item-val">斜切角战术顶栏秒级走时</div>
+          </div>
+          <div>
+            <div class="spec-item-title">防闪烁机制</div>
+            <div class="spec-item-val">纯离散矩形色块填充，帧绘制低于 0.2ms</div>
+          </div>
+          <div>
+            <div class="spec-item-title">中文表达规范</div>
+            <div class="spec-item-val">战术抬头/机体护盾/正常运转/硬件锁定</div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="theme-desc-panel">
-      <span class="theme-title-tag" style="background:#831843; color:#f472b6;">流派五</span>
-      <div class="theme-title">赛博战术机甲 HUD 流 (Tactical Mecha)</div>
-      <div class="theme-intro">
-        科幻战术外骨骼座舱界面。以多阶梯形能量刻度取代传统进度条；非监控页呈现机体护盾、双核状态与环境雷达巡检报告。
-      </div>
-      <div class="specs-row">
-        <div>
-          <div class="spec-item-title">时间组件形式</div>
-          <div class="spec-item-val">斜切角战术顶栏秒级走时</div>
-        </div>
-        <div>
-          <div class="spec-item-title">防闪烁机制</div>
-          <div class="spec-item-val">纯离散矩形色块填充，帧绘制低于 0.2ms</div>
-        </div>
-        <div>
-          <div class="spec-item-title">中文表达规范</div>
-          <div class="spec-item-val">战术抬头/机体护盾/正常运转/硬件锁定</div>
-        </div>
-      </div>
-    </div>
-  </section>
+    </section>
 
-</main>
+  </main>
 
 </body>
+
 </html>
