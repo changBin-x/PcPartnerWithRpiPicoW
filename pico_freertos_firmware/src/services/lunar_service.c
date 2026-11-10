@@ -112,7 +112,7 @@ static void lunar_commit(const uint8_t* buffer, size_t size,
   s_record_count = meta->record_count;
 }
 
-/* 与 pico/lunar.py 的 _day_index 等价；失败返回 false。 */
+/* 与归档 MicroPython 版的 _day_index 等价；失败返回 false。 */
 static bool lunar_day_index(int year, int month, int day, int start_year,
                             uint32_t* out_index) {
   if (year < start_year || month < 1 || month > 12) {

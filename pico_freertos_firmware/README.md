@@ -1,7 +1,7 @@
 # Pico W 固件（FreeRTOS / C）
 
-本目录是整机固件的 **C + FreeRTOS** 实现，用来替代已退役的 `pico/` MicroPython
-版本（归档在 `archive/micropython` 分支）。只读资源（字模、农历表、根证书）已迁入
+本目录是整机固件的 **C + FreeRTOS** 实现，用来替代已归档到
+`archive/micropython` 分支的 MicroPython 版本。只读资源（字模、农历表、根证书）已迁入
 本目录 `assets/`，归档版本部署时复用同一份文件；两端共用同一套 UDP 协议，界面在
 128×160 分辨率上逐像素对齐。
 
@@ -132,8 +132,8 @@ cd pico_freertos_firmware
 - `build/pico_status_screen.elf` / `.bin` / `.map`
 
 按住 BOOTSEL 上电或用 `picotool reboot -f -u` 进入 BOOTSEL，随后把 `.uf2` 拖到
-`RPI-RP2` 磁盘即可。**注意**：C 固件会覆盖 MicroPython 解释器；想回到 MicroPython
-需要重新刷官方 `.uf2`。
+`RPI-RP2` 磁盘即可。**注意**：C 固件会覆盖 MicroPython 解释器；想回到 MicroPython，
+请使用 `archive/micropython` 分支与 `micropython-final` 标签中的归档说明重新烧录。
 
 ## 串口日志
 

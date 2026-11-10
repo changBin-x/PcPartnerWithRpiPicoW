@@ -17,7 +17,7 @@
 #include "task.h"
 #endif
 
-/* Material Design 3 深色主题令牌，与 pico/display.py 的取值一致。 */
+/* Material Design 3 深色主题令牌，与归档 MicroPython 版的取值一致。 */
 enum {
   kColorBackground = 0x1083,
   kColorSurface = 0x1904,
@@ -204,7 +204,7 @@ static void format_rate(char* buffer, size_t size, float mbps) {
 
 static void render_top_bar(uint16_t* pixels, int origin_y,
                            const SystemSnapshot* snapshot) {
-  /* 与 pico/display.py 一致：只画两枚状态图标，用颜色区分在线与离线。
+  /* 与归档 MicroPython 版一致：只画两枚状态图标，用颜色区分在线与离线。
    * 字库没有“在线/离线/无网”这些字，避免回退成占位方框。 */
   FontSurface surface = make_surface(pixels, origin_y);
   const uint16_t pc_color = snapshot->pc_online ? kColorPrimary : kColorError;
