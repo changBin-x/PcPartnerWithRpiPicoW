@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | :--- | :--- |
-| 规格版本 | **v1.5.1** |
+| 规格版本 | **v1.5.2** |
 | 创建日期 | 2026-11-10 |
 | 最后更新 | 2026-11-11 |
 | 目标平台 | Raspberry Pi Pico W（RP2040，Cortex-M0+ 双核，264 KB SRAM，2 MB QSPI Flash） |
@@ -21,6 +21,7 @@
 | v1.4.0 | 2026-11-11 | 依据第三轮复审修正：删除不可复现的 82 % 抗锯齿折算表、主题 1/3 改名并对调主题 4 的 `primary`/`tertiary`、`track` 判据改用 ΔL\* 与方向、补三个纯逻辑单元（配置编解码 / 提交策略 / 主题推进）与对应测试目标、依赖断言改为仓库根 cwd 的 `${REL_FIRMWARE}/` 前缀并降为 3 条、修正 `flash_safe_execute` 失败路径与堆预检语义、补 `add_test` 要求与两个漏登记的头文件 |
 | v1.5.0 | 2026-11-11 | 依据第四轮复审修正：结果码拆为 6 个（enter/exit 超时不再一码两义、`-9` 单独成码）、堆预检收敛到 `theme_storage_commit()` 内、重试策略与状态机分派对齐、403/603/650 三口径定名、XIP 论证改为「回调体在 XIP 开启时执行」、`panic` 移到 `supervisor_start()` 之后、依赖图补边、`track` 判据改用有符号 `ΔL*(surface, track)` |
 | v1.5.1 | 2026-11-11 | 依据第四轮定向闭环复核修正：`ErrVerify` 拆分出 `ErrInvalidArg` 并补第二次重试的终止分支（`s_verify_retried`）、`-9` 分支标注为现状不可达并删除「唯一可安全重来」的过度断言、§9 合并同根因的两行矛盾评级 |
+| v1.5.2 | 2026-11-11 | 依据第五轮逐码矩阵复核修正：第 2/3 步补状态前提（否则 `Failed` 会被下一个节拍拉回 `Writing`，形成 0.5 s 一轮的冻结循环）、`NoResources` 终止态改为 `Failed`、`InvalidArg` 标注为现实不可达、状态机整体下沉到被测单元 `theme_commit_policy.c`、把「只有握手超时才复位」限定到提交分派口径 |
 
 ---
 
@@ -753,8 +754,8 @@ typedef enum {
   kThemeStorageErrExitTimeout,  /**< exit 握手超时：回调已执行、Flash 很可能
                                      已写入但无法确认，须立即回读裁决 */
   kThemeStorageErrVerify,       /**< 回读与预期不一致（调用方最多重试 1 次） */
-  kThemeStorageErrInvalidArg,   /**< 入参越界（调用方违约）：
-                                     不触碰 Flash、不重试 */
+  kThemeStorageErrInvalidArg,   /**< 入参越界（调用方违约）：不触碰 Flash、
+                                     不重试；本仓不可达，见 §5.4.1 */
   kThemeStorageErrNoHeap,       /**< 堆预检未过：没调 flash_safe_execute，
                                      以免触发 malloc 失败钩子的死循环 */
   kThemeStorageErrNoResources,  /**< 建避难任务失败（-9）：未劫持任何核、Flash
@@ -769,12 +770,22 @@ UiThemeId theme_storage_init(void);
 
 /**
  * @brief 同步提交主题，阻塞直到写完或失败。
- * @param theme_id 目标主题；越界属调用方违约：先 configASSERT，随即返回
- *                 kThemeStorageErrInvalidArg，不写 Flash、也不夹紧落盘。
+ * @param theme_id 目标主题；越界属调用方违约：先 configASSERT。固件构建里
+ *                 configASSERT 停在 firmware_assert_failed() 自旋（不返回），
+ *                 只有在 assert 可返回的构建里才会返回
+ *                 kThemeStorageErrInvalidArg
+ *                 ——无论哪种都不写 Flash、也不夹紧落盘。
  * @return ThemeStorageResult。
  */
 ThemeStorageResult theme_storage_commit(UiThemeId theme_id);
 ```
+
+**为什么越界不夹紧、也不复用 `ErrVerify`**：唯一调用端是
+`(current.theme_id + 1) % kThemeCount`，`system_state_set_theme()` 自己也夹紧，加载器还校验
+`theme_id < kThemeCount`，所以越界在本仓**不可能出现**；`configASSERT` 在固件里
+（`FreeRTOSConfig.h:76-77` → `main.c:95-101`）是关中断后自旋，不会返回。保留该码只为在
+assert 可返回的构建下仍有一个合法返回值；若把它混进 `Verify`，一次调用方 bug 会借
+「幂等重写」通道把用户已存主题改成主题 0。
 
 **为什么把「超时」拆成两个码**：SDK 的 enter 等待超时（`flash.c:170`）与 exit 等待超时
 （`flash.c:221`）都返回 `PICO_ERROR_TIMEOUT`，**但语义相反**——前者 `func(param)` 根本没跑
@@ -812,12 +823,15 @@ typedef enum {
 
 1. 取快照；`theme_id` 与本地 `s_seen` 不同 → 更新 `s_seen`，把截止时刻置为
    `now + 5000 ms`，状态转 `Pending`；
-2. 到达截止时刻且 `s_seen != s_committed`：先读 XIP 地址比对——配置有效且
+   **只有这一种方式能离开 `Done` / `Failed`**；
+2. **仅当 `state == Pending`** 且到达截止时刻且 `s_seen != s_committed`：先读 XIP 地址比对——配置有效且
    `theme_id` 相同则直接转 `Done`（**零擦写**）；
 3. 转 `Writing`，调用 `theme_storage_commit()`，按返回码分派：`kThemeStorageOk` → `Done`；
-   `kThemeStorageErrNoResources` → 回到 `Pending`，下一个去抖周期重来；
+   `kThemeStorageErrNoResources` → `Failed`（与 `NoHeap` 一致：分配型失败一律不重试，
+   否则「有没有终止条件」会取决于 D-11 落不落地）；
    `kThemeStorageErrVerify` → 若 `s_verify_retried == false`，置 `true`、留在 `Writing`、
-   用 `vTaskDelay(pdMS_TO_TICKS(1000))` 等 1 s 再调一次（§5.4.3）；**第二次仍是
+   用 `vTaskDelay(pdMS_TO_TICKS(1000))` 等 1 s 再调一次（§5.4.3），**重试用本次尝试的
+   同一个 `theme_id`，不重取快照**——否则这 1 s 内用户又按一次键，簿记会错位；**第二次仍是
    `kThemeStorageErrVerify` → `Failed`**——这条终止分支必须写进指令，否则「最多 1 次」
    会退化成每 1.4 s 一轮、永远不进 `Failed` 的无限重试（`vTaskDelay` 让出 CPU，看门狗
    照常被喂，连 8 s 复位都不会发生）；
@@ -826,8 +840,12 @@ typedef enum {
    零擦写短路打印 `printf("theme: skip id=%u\n", id)`。这是 §8.4 中 S-1/S-2/S-3
    「0 次擦写 / 恰好 1 次擦写」唯一的观测手段——RP2040 没有 Flash 擦写计数器。
 
-`s_verify_retried` 是任务侧的 `static bool`，**每次从 `Pending` 进入 `Writing` 时清零**，
-保证一次提交只买一次重试；不引入新的状态枚举值。
+**状态机与 `s_verify_retried` 位都不在任务里，而在纯逻辑单元 `theme_commit_policy.c`**：
+任务只做三件 I/O（取快照、调 `theme_storage_commit()`、把结果喂回策略），策略负责
+「下一步该做什么 + 是否还有下一次」。这样「`Failed` 之后是否真终止」「第二次 `Verify` 是否
+一定转 `Failed`」是能在宿主上**断言**的性质（§6.3 的 `test_theme_commit_policy`），而不是
+要上板跑 8 s 才看得见的时序。`s_verify_retried` 在**每次从 `Pending` 进入 `Writing`** 时清零，
+保证一次提交只买一次重试。
 
 **堆预检在 `theme_storage_commit()` 内部，不在任务里。** 只有把它放在真正要调用
 `flash_safe_execute()` 的那一层，才能保证「预检未过就绝不进入握手」，也才能让
@@ -878,7 +896,7 @@ enter 超时 → Core 1 被优先级 7 的避难任务永久占用（中断可�
 | 回读不一致（`kThemeStorageErrVerify`） | 最多 **1 次**，间隔 1 s | 擦除 + 整页重写天然幂等；1 s 后重试仍落在 8 s 预算内。**第二次仍不一致即转 `Failed`**，终止由任务侧 `s_verify_retried` 位保证 |
 | 入参越界（`kThemeStorageErrInvalidArg`） | **不重试** | 调用方违约，与 Flash 状态无关；`configASSERT` 后立刻返回，既不写也不夹紧落盘——若把它混进 `Verify`，一次调用方 bug 会借「幂等重写」通道把用户已存主题改成主题 0 |
 | 堆预检不足（`kThemeStorageErrNoHeap`） | **不重试** | 根本不该进入 `flash_safe_execute`，见 §5.4.2 |
-| 建避难任务失败（`kThemeStorageErrNoResources`） | 设计上**重来**，下一个去抖周期 | `flash.c:151` 的 `xTaskCreateAffinitySet` 失败后直接 `return -9`，既没建任务也没关中断、Flash 未动。但**这条分支今天不可达**：`xTaskCreate` 的唯一运行期失败原因是分配失败，而分配失败先撞 `vApplicationMallocFailedHook()` 死循环（§9、D-11）；它是为 D-11 落地后准备的可重入去路，不是现在的可观测行为 |
+| 建避难任务失败（`kThemeStorageErrNoResources`） | **不重试**，转 `Failed` | `flash.c:151` 的 `xTaskCreateAffinitySet` 失败后直接 `return -9`，既没建任务也没关中断、Flash 未动。但**这条分支今天不可达**：`xTaskCreate` 的唯一运行期失败原因是分配失败，而分配失败先撞 `vApplicationMallocFailedHook()` 死循环（§9、D-11）。与 `NoHeap` 同属分配型失败，一律不重试——即便 D-11 落地，重来也只会再撞一次分配 |
 
 **回读不一致的那 1 次重试不需要新状态。** 它发生在 `Writing` 态内部：`theme_storage_commit()`
 返回 `kThemeStorageErrVerify` 后，任务用 `vTaskDelay(pdMS_TO_TICKS(1000))` 原地等 1 s 再调一次，
@@ -927,7 +945,7 @@ magic == THEME_FLASH_MAGIC
 | UDP 丢包 | 最多 1–2 包 | 端口 8765 每秒一包；3 s 离线判定不会误触发 |
 | UI 槽位心跳 | 预算内安全，最坏擦线 | 1000 ms 槽位；按 603 ms 最坏推算仍有 40 % 余量，但这是算出来的、不是实测的 |
 | RTOS tick 停摆 | 403–603 ms | SysTick 被关中断，恢复后只补记 1 tick；所有基于 `xTaskGetTickCount()` 的超时（含 5 s 去抖）整体顺延。`get_absolute_time()` 域（显示时钟、mbedtls 时间源）不受影响 |
-| 硬件看门狗 | **只有握手超时才复位** | 8000 ms 看门狗；enter/exit 超时 → 1 s 后停喂 → 8 s 复位整机；`-9`（建任务失败）不影响看门狗 |
+| 硬件看门狗 | **只有两条路径会复位** | 8000 ms 看门狗。其一 enter/exit 握手超时 → 渲染停摆 → 1 s 后停喂 → 8 s 复位；其二是堆被碎片化击穿、`flash_safe_execute` 内部 `pvPortMalloc` 失败撞上 `vApplicationMallocFailedHook()` 死循环（§9）。其余返回码一律转 `Failed`，不再碰 Flash、照常喂狗 |
 
 v1.2.0 在这里写的「看门狗不受影响」是错的：正常写入确实不影响，但一旦握手超时，
 系统进入 §5.4.3 描述的必死循环，8 s 后一定复位。
@@ -1002,7 +1020,8 @@ pico_freertos_firmware/
 在宿主上编不过；如果校验、去抖、绕回全都写在它和 `theme_commit_task.c` 里，宿主测试就
 **没有可编译的被测单元**（这正是第三轮复审指出的「测试目标无处落地」）。
 拆开之后，`theme_config.c` 负责 12 字节布局与校验（覆盖 §8.2 N-1..N-8），
-`theme_commit_policy.c` 负责时间推进（覆盖 5 s 去抖与零擦写短路），
+`theme_commit_policy.c` 承载完整状态机（5 个状态、5 s 去抖、零擦写短路、`Verify` 只重试一次、
+每个状态的终止条件），任务只做 I/O 与回灌（覆盖「`Failed` 之后不再自动重入」），
 `theme_switch.c` 负责 `(current + 1) % kThemeCount`（覆盖绕回）——
 三者都不 include 任何 SDK 头，`theme_storage.c` 退化为「读 12 字节 → parse；
 pack → `flash_safe_execute` → 回读 parse」的薄适配层。
@@ -1128,7 +1147,9 @@ target_link_libraries(pico_status_screen PRIVATE
   - `test_ui_theme`：主表 6 × 17 项对比度/色差断言（§8.5 R-7），只编 `ui_theme.c`；
   - `test_button_filter`：2/2 采样消抖；
   - `test_theme_config`：12 字节打包、解析与全部校验分支（覆盖 §8.2 N-1..N-8）；
-  - `test_theme_commit_policy`：5 s 去抖、零擦写短路、绕回（含 `theme_switch.c`）。
+  - `test_theme_commit_policy`：5 s 去抖、零擦写短路、绕回（含 `theme_switch.c`），
+  以及两条终止性断言——「连续两次 `Verify` 后必须停在 `Failed`」「`Failed` 不会因截止时刻
+  已过而被下一个节拍拉回 `Writing`」。这两条正是 v1.5.2 补上的状态门。
 
 **每个新目标都必须同时补一条 `add_test()`**。`tests/CMakeLists.txt:50` 有
 `enable_testing()`，`:92-94` 的原注释写得很清楚：「后续任务的测试目标请追加到本行之前，
@@ -1152,7 +1173,7 @@ target_link_libraries(pico_status_screen PRIVATE
 | `include/theme_storage.h` + `src/platform/theme_storage.c`（新） | 擦写、回读、结果码（薄适配层） | 仅固件侧编入；逻辑已下沉 `test_theme_config` |
 | `include/button_filter.h` + `src/logic/button_filter.c`（新） | 2/2 采样消抖 | 新增 `test_button_filter` |
 | `include/theme_config.h` + `src/logic/theme_config.c`（新） | 12 字节打包/解析/校验 | 新增 `test_theme_config` |
-| `include/theme_commit_policy.h` + `src/logic/theme_commit_policy.c`（新） | 5 s 去抖与零擦写判定（注入时钟） | 新增 `test_theme_commit_policy` |
+| `include/theme_commit_policy.h` + `src/logic/theme_commit_policy.c`（新） | 完整提交状态机：去抖、零擦写、`Verify` 单次重试、终止条件（注入时钟） | 新增 `test_theme_commit_policy` |
 | `include/theme_switch.h` + `src/logic/theme_switch.c`（新） | `(current + 1) % kThemeCount` 绕回 | 并入 `test_theme_commit_policy` |
 | `include/board_button.h` + `src/platform/board_button.c`（新） | GP15 采样 | 仅固件侧编入 |
 | `include/theme_commit_task.h` + `src/app/theme_commit_task.c`（新） | 任务创建 + 周期驱动 | 仅固件侧编入 |
@@ -1263,8 +1284,8 @@ ctest --test-dir pico_freertos_firmware/tests/build --output-on-failure
 | 最后 5 s 内的切换因掉电丢失 | 中 | 低 | 有意权衡，写入 §8.4 S-1 |
 | 擦除期间画面冻结 | 中 | 中 | 预算 403 ms、最坏 603 ms（验收上界 650 ms）；知情接受，备选方案见 §12 D-4 |
 | 擦除期间 Wi-Fi/lwIP 停顿导致丢包 | 中 | 低 | 3 s 离线判定不受影响 |
-| `flash_safe_execute` 建避难任务时堆不足（`-9`，实际先撞 malloc 钩子） | 低 | 高 | 同一根因只记一次：预检 `xPortGetFreeHeapSize() >= 1536`（经验值，不保证连续块）只能降低概率；分配真失败时 `pvPortMalloc` 先调 `main.c:103-109` 的死循环钩子，`-9` 根本返回不出来，后果是 8 s 复位。`kThemeStorageErrNoResources` 的可重入去路只有 D-11 落地后才生效，当前不可观测 |
-| 握手超时（`PICO_ERROR_TIMEOUT`） | 低 | **高** | enter / exit 超时**都不重试**；只有回读不一致重试 1 次、间隔 1 s。**只有这两种握手超时才必然 8 s 复位**；`-9` 不属握手超时，但它今天不可达（上一行），故「可重来」只存在于设计意图中（§5.4.3） |
+| `flash_safe_execute` 建避难任务时堆不足（`-9`，实际先撞 malloc 钩子） | 低 | 高 | 同一根因只记一次：预检 `xPortGetFreeHeapSize() >= 1536`（经验值，不保证连续块）只能降低概率；分配真失败时 `pvPortMalloc` 先调 `main.c:103-109` 的死循环钩子，`-9` 根本返回不出来，后果是 8 s 复位。`kThemeStorageErrNoResources` 因此永远返回不出来，按不重试转 `Failed` 处理即可 |
+| 握手超时（`PICO_ERROR_TIMEOUT`） | 低 | **高** | enter / exit 超时**都不重试**；只有回读不一致重试 1 次、间隔 1 s。**在返回码分派里只有这两种握手超时才必然 8 s 复位**（分派之外还有 malloc 钩子那条路，见上一行）；`-9` 不属握手超时且今天不可达（上一行），按分配型失败转 `Failed`、不重试（§5.4.3） |
 | 掉电写坏配置 | 低 | 低 | 校验回退主题 0；不承诺「旧值必存活」 |
 | 未来镜像膨胀压过 Sector 511 | 低 | 高 | 链接期 `ASSERT` + 启动期 `panic` |
 | 主题 0 四项已知缺陷（三项视觉 + 一项 track 方向，§3.4.4） | 确定 | 低 | 明确登记，不修；修复代价是默认外观变化 + 基线更新 |
@@ -1351,7 +1372,7 @@ v1 不动；这也说明「116 px」是给**新文案**的门槛，不是对存�
 | D-8 | 是否做双扇区 A/B 备份 | 不做 | 做则 +4 KB 与约 20 行代码，掉电不会丢旧值 |
 | D-9 | 长按是否加速循环 | 不加速 | 长按 500 ms 后每 200 ms 切一次 |
 | D-10 | 是否需要组合键恢复默认 | 不需要 | 需第二个按键或开机时长按 |
-| D-11 | 是否顺手修 `src/main.c:103-109` 的 malloc 失败钩子 | 不修（属规格外改动，单独提交） | 改为「记录 + 返回 `NULL`」。这**不是**让 `kThemeStorageErrNoHeap` 可达的前提（预检那条路本来就走得到），而是兜住「预检被碎片化击穿」时的最后一道缝：现状下只要真的 malloc 失败，钩子就死循环、8 s 后复位。它同时是 `kThemeStorageErrNoResources` 从「不可达」变为「可达」的唯一前提 |
+| D-11 | 是否顺手修 `src/main.c:103-109` 的 malloc 失败钩子 | 不修（属规格外改动，单独提交） | 改为「记录 + 返回 `NULL`」。这**不是**让 `kThemeStorageErrNoHeap` 可达的前提（预检那条路本来就走得到），而是兜住「预检被碎片化击穿」时的最后一道缝：现状下只要真的 malloc 失败，钩子就死循环、8 s 后复位。它也是唯一能让 `kThemeStorageErrNoResources` 从「不可达」变为「可达」的改动（但即便如此，该码仍按不重试处理） |
 
 ---
 
@@ -1368,8 +1389,8 @@ v1 不动；这也说明「116 px」是给**新文案**的门槛，不是对存�
 | 结构体布局被锁定 | 通过 | §5.2 三条 `offsetof` 断言 + `sizeof == 12` |
 | 构建依赖完整 | 通过 | §6.3 补 `hardware_flash` 与 `pico_flash`（后者是 INTERFACE 库，不传递） |
 | 心跳不被伪造 | 通过 | 全文无 `FIRMWARE_CHECK_IN`；写窗口 603 ms < UI 槽位 1000 ms |
-| 失败路径与看门狗对齐 | 通过 | §5.4.3 写清两条超时路径与「只有握手超时才必复位」；`kThemeStorageErrNoHeap` 在预检处**可达**（不依赖 D-11）；`-9` 的 `kThemeStorageErrNoResources` 已建模但**今天不可达**（malloc 钩子拦在前面，§9），其可重入去路依赖 D-11；15 s 重试预算已删除 |
-| 结果码单一生产者 | 通过 | §5.4.1 七个码各有唯一生产点、唯一消费者是 `vTaskThemeCommit`；enter/exit 超时由 `s_callback_ran` 区分、`Verify` 与 `InvalidArg` 分属「可重试的落盘问题」与「不可重试的调用方违约」，同一码不再承载两种处置 |
+| 失败路径与看门狗对齐 | 通过 | §5.4.3 写清两条超时路径；复位口径限定为「在提交返回码的分派里，只有握手超时才必复位，另有一条 malloc 钩子路径」，`kThemeStorageErrNoHeap` 在预检处**可达**（不依赖 D-11）；`-9` 的 `kThemeStorageErrNoResources` 已建模但**今天不可达**（malloc 钩子拦在前面，§9），该码按不重试转 `Failed`；15 s 重试预算已删除 |
+| 结果码单一生产者 | 通过 | §5.4.1 七个码各有唯一生产点、唯一消费者是 `vTaskThemeCommit`；enter/exit 超时由 `s_callback_ran` 区分、`Verify` 与 `InvalidArg` 分属「可重试的落盘问题」与「不可重试的调用方违约」；`InvalidArg` 与 `NoResources` 两个码在现状下不可达，均在正文标注而非假装可达；状态机与终止条件由 `test_theme_commit_policy` 断言 |
 | 动态堆已交底 | 通过 | §4.5 与 §9 承认 `flash_safe_execute` 每次 ≈1.1 KB，预检 1536 B 标为经验值且不保证连续块 |
 | 镜像边界有守卫 | 通过 | §5.1 `section_extra_post_end.incl` + `pico_add_linker_script_override_path` + 启动期 `panic` |
 | 对比度可测 | 通过 | §3.4.1 的 17 项由 §3.3 落点表**归并**得出（15 CR + 2 ΔL\*），§3.4.2 给 6 × 17 实测，102 个组合 100 通过 / 2 不通过且已登记 |
