@@ -88,13 +88,13 @@ target_compile_options(cjson_lib PRIVATE -w)
 # ---------------------------------------------------------------------------
 # 只读资源（字模、农历表、根证书）
 # ---------------------------------------------------------------------------
-# 资源不复制进本目录，直接引用仓库根 pico/ 下已有的文件，保证 Python 参考
-# 实现与固件读到的是同一份数据。用 objcopy 转成 .rodata 段链接进 Flash：
-# 资源全部是 const，不占 RAM，也不需要手写几万行的 C 数组。
+# 资源放在本目录 assets/ 下，由 C 固件独占，不再依赖已退役的 MicroPython
+# 目录。用 objcopy 转成 .rodata 段链接进 Flash：资源全部是 const，不占 RAM，
+# 也不需要手写几万行的 C 数组。
 #
 # 符号名由输入文件名派生，例如 font_cn.bin -> _binary_font_cn_bin_start/_end，
 # 所以 objcopy 必须在资源所在目录里以「纯文件名」为参数执行。
-set(ASSET_DIR ${CMAKE_CURRENT_LIST_DIR}/../pico)
+set(ASSET_DIR ${CMAKE_CURRENT_LIST_DIR}/assets)
 if (NOT EXISTS ${ASSET_DIR}/font_cn.bin)
   message(FATAL_ERROR "缺少资源目录 ${ASSET_DIR}（font_cn.bin 等）")
 endif ()
@@ -123,7 +123,7 @@ function(embed_asset asset_name)
       OUTPUT ${object_file}
       COMMAND ${CMAKE_COMMAND} -E make_directory ${staged_dir}
                         ${CMAKE_CURRENT_BINARY_DIR}/assets
-      COMMAND ${PYTHON3_EXECUTABLE} ${ASSET_DIR}/../tools/pad_asset_nul.py
+      COMMAND ${PYTHON3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/../tools/pad_asset_nul.py
               ${asset_file} ${staged_file}
       # 符号名由输入文件名派生，因此必须在暂存目录里以纯文件名调用 objcopy，
       # 否则符号会变成 _binary__home_bean_..._start 这种不可用的名字。
@@ -132,7 +132,7 @@ function(embed_asset asset_name)
               ${asset_name} ${object_file}
       WORKING_DIRECTORY ${staged_dir}
       DEPENDS ${asset_file}
-              ${ASSET_DIR}/../tools/pad_asset_nul.py
+              ${CMAKE_CURRENT_LIST_DIR}/../tools/pad_asset_nul.py
       COMMENT "嵌入资源 ${asset_name}"
       VERBATIM)
   set(ASSET_OBJECTS ${ASSET_OBJECTS} ${object_file} PARENT_SCOPE)

@@ -42,7 +42,22 @@ def _default_table_path():
     if separator:
         module_dir = module_file.rsplit(separator, 1)[0]
         if module_dir:
-            return module_dir + separator + "lunar_table.bin"
+            local_path = module_dir + separator + "lunar_table.bin"
+            try:
+                open(local_path, "rb").close()
+                return local_path
+            except OSError:
+                return (
+                    module_dir
+                    + separator
+                    + ".."
+                    + separator
+                    + "pico_freertos_firmware"
+                    + separator
+                    + "assets"
+                    + separator
+                    + "lunar_table.bin"
+                )
     return "lunar_table.bin"
 
 

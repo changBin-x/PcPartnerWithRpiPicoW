@@ -61,11 +61,13 @@ bool asset_store_init(void) {
 
 #else /* 宿主端：从磁盘读取，便于单元测试与无硬件预览。 */
 
+/* 候选目录覆盖三种常见工作目录：pico_freertos_firmware/、build/ 与
+ * tests/build/；最后一项用于从仓库根直接运行宿主测试。 */
 static const char* const kAssetDirCandidates[] = {
-    "pico",
-    "../pico",
-    "../../pico",
-    "../../../pico",
+    "assets",
+    "../assets",
+    "../../assets",
+    "pico_freertos_firmware/assets",
 };
 
 static struct {

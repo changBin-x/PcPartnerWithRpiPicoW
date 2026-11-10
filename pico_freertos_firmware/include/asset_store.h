@@ -15,8 +15,8 @@ typedef struct {
 
 /* 初始化资源访问。
  * 设备端：资源以 const 数据的形式链接进 Flash，本函数只做指针登记，恒成功。
- * 宿主端（单元测试）：按 PICO_ASSETS_DIR、pico/、../pico/、../../pico/、
- * ../../../pico/ 的顺序查找 pico/ 目录，全部找不到时返回 false。 */
+ * 宿主端（单元测试）：按 PICO_ASSETS_DIR、assets/、../assets/、../../assets/、
+ * pico_freertos_firmware/assets/ 的顺序查找，全部找不到时返回 false。 */
 bool asset_store_init(void);
 
 /* 中文字模表（14x14、4bpp、98 字节/字形，共 341 个字形）。

@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define TABLE_PATH "../../../pico/lunar_table.bin"
+#define TABLE_PATH "../../assets/lunar_table.bin"
 
 static void expect_lunar(int year, int month, int day, int ganzhi_index,
                          const char* ganzhi_year, int lunar_month, bool is_leap,
@@ -36,7 +36,7 @@ int main(void) {
   printf("init_from_file(%s) = %d\n", TABLE_PATH, rc);
   assert(rc == 0);
 
-  /* 与 pico/lunar.py format_lunar_date 交叉验证过的用例。 */
+  /* 与归档的 MicroPython 实现 format_lunar_date 交叉验证过的用例。 */
   expect_lunar(2026, 11, 6, 42, "丙午年", 9, false, 28, "九月廿八");
   expect_lunar(2024, 2, 10, 40, "甲辰年", 1, false, 1, "正月初一");
   expect_lunar(2023, 3, 23, 39, "癸卯年", 2, true, 2, "闰二月初二");
@@ -95,7 +95,7 @@ int main(void) {
   printf("  无效表 -> 查询返回 false\n");
 
   assert(lunar_service_init_from_file(TABLE_PATH) == 0);
-  assert(lunar_service_init_from_file("../../../pico/missing.bin") < 0);
+  assert(lunar_service_init_from_file("../../assets/missing.bin") < 0);
   /* 打开失败不破坏已加载的表。 */
   assert(lunar_service_lookup(2024, 2, 10, &lunar));
   printf("  重载有效表 + 缺失文件返回负值 -> ok\n");

@@ -1,7 +1,7 @@
 """部署/启动 PowerShell 脚本的静态契约测试。
 
-这些测试只读取脚本与 ``pico/`` 目录，不执行 PowerShell，
-因此可以在 Linux 上、在没有安装 mpremote / Pico 的环境里运行。
+这些测试只读取脚本、``pico/`` 目录与 C 固件的 ``assets/`` 目录，不执行
+PowerShell，因此可以在 Linux 上、在没有安装 mpremote / Pico 的环境里运行。
 """
 
 import re
@@ -12,11 +12,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEPLOY_SCRIPT = REPO_ROOT / "tools" / "deploy_pico.ps1"
 START_SCRIPT = REPO_ROOT / "tools" / "start_metrics.ps1"
 PICO_ROOT = REPO_ROOT / "pico"
+C_FIRMWARE_ASSET_ROOT = REPO_ROOT / "pico_freertos_firmware" / "assets"
 
 SCRIPT_ENCODING = "utf-8-sig"
 
 # 两个本地配置文件算在 17 项清单里，但不进仓库（.gitignore），也不参与“磁盘文件全覆盖”断言。
 LOCAL_SECRET_FILES = frozenset({"wifi_secrets.py", "weather_secrets.py"})
+
+# 这 4 个只读资源已迁入 C 固件目录；归档 MicroPython 部署时仍上传到 /pico/。
+MOVED_ASSET_FILES = frozenset(
+    {"amap_root_ca.pem", "font_cn.bin", "hko_root_ca.pem", "lunar_table.bin"}
+)
 
 EXPECTED_FIRMWARE_FILES = (
     "__init__.py",
@@ -67,13 +73,15 @@ class DeployManifestTests(unittest.TestCase):
         for name in LOCAL_SECRET_FILES:
             self.assertIn(name, self.manifest)
 
-    def test_every_packaged_file_exists_under_pico(self):
-        missing = [
-            name
-            for name in self.manifest
-            if name not in LOCAL_SECRET_FILES and not (PICO_ROOT / name).is_file()
-        ]
-        self.assertEqual([], missing, "部署清单引用了 pico/ 下不存在的文件")
+    def test_every_packaged_file_exists_in_its_source_tree(self):
+        missing = []
+        for name in self.manifest:
+            if name in LOCAL_SECRET_FILES:
+                continue
+            root = C_FIRMWARE_ASSET_ROOT if name in MOVED_ASSET_FILES else PICO_ROOT
+            if not (root / name).is_file():
+                missing.append(name)
+        self.assertEqual([], missing, "部署清单引用了源目录中不存在的文件")
 
         for example in ("wifi_secrets.example.py", "weather_secrets.example.py"):
             self.assertTrue((PICO_ROOT / example).is_file(), "缺少 %s" % example)
@@ -88,8 +96,18 @@ class DeployManifestTests(unittest.TestCase):
             and path.name not in LOCAL_SECRET_FILES
             and not path.name.endswith("_secrets.example.py")
         }
-        self.assertEqual([], sorted(on_disk - set(self.manifest)))
-        self.assertEqual(sorted(on_disk), sorted(set(self.manifest) - LOCAL_SECRET_FILES))
+        expected = set(self.manifest) - LOCAL_SECRET_FILES - MOVED_ASSET_FILES
+        self.assertEqual([], sorted(on_disk - expected))
+        self.assertEqual(sorted(on_disk), sorted(expected))
+        for name in MOVED_ASSET_FILES:
+            self.assertTrue(
+                (C_FIRMWARE_ASSET_ROOT / name).is_file(),
+                "C 固件 assets/ 缺少 %s" % name,
+            )
+            self.assertFalse(
+                (PICO_ROOT / name).exists(),
+                "%s 已迁入 C 固件 assets/，不应留在 pico/" % name,
+            )
 
     def test_main_py_is_copied_to_root_and_device_is_reset(self):
         self.assertNotIn("main.py", self.manifest, "main.py 必须单独复制到 :/main.py")

@@ -9,13 +9,33 @@ DEFAULT_CACHE_LIMIT = 64
 
 
 def default_path():
-    """Resolve ``font_cn.bin`` next to this module, like ``lunar.py`` does."""
+    """Resolve ``font_cn.bin`` beside this module or in the C firmware assets.
+
+    设备上文件被部署到 ``/pico/font_cn.bin``，本地路径必然存在；宿主测试
+    从仓库运行时，资源已经迁到 ``pico_freertos_firmware/assets/``，因此
+    本函数在本地文件缺失时回退到新目录。
+    """
     module_file = globals().get("__file__", "")
     separator = "/" if "/" in module_file else "\\" if "\\" in module_file else ""
     if separator:
         module_dir = module_file.rsplit(separator, 1)[0]
         if module_dir:
-            return module_dir + separator + "font_cn.bin"
+            local_path = module_dir + separator + "font_cn.bin"
+            try:
+                open(local_path, "rb").close()
+                return local_path
+            except OSError:
+                return (
+                    module_dir
+                    + separator
+                    + ".."
+                    + separator
+                    + "pico_freertos_firmware"
+                    + separator
+                    + "assets"
+                    + separator
+                    + "font_cn.bin"
+                )
     return "font_cn.bin"
 
 

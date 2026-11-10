@@ -162,7 +162,12 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(_text_width("星期一 10/31"), 90)
 
     def test_chinese_glyphs_are_flash_backed_to_save_heap(self):
-        blob_path = Path(__file__).resolve().parent.parent / "pico" / "font_cn.bin"
+        blob_path = (
+            Path(__file__).resolve().parent.parent
+            / "pico_freertos_firmware"
+            / "assets"
+            / "font_cn.bin"
+        )
         self.assertEqual(FONT_CN_BYTES_PER_GLYPH, 98)
         self.assertEqual(len(FONT_CN_ORDER), len(FONT_CN))
         self.assertEqual(blob_path.stat().st_size, FONT_CN_BLOB_BYTES)

@@ -1,4 +1,5 @@
-﻿# 将 pico/ 下的固件文件通过 mpremote 部署到 Pico W。
+﻿# 将 pico/ 与 pico_freertos_firmware/assets/ 下的归档固件文件通过 mpremote
+# 部署到 Pico W。只读资源已迁入 C 固件目录，部署时仍上传到设备的 /pico/。
 #
 # 退出码约定（调用方与 CI 依赖这些值）：
 #   0  部署成功：全部文件已上传，设备已重启
@@ -126,6 +127,7 @@ function Invoke-Mpremote {
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $picoRoot = Join-Path $projectRoot "pico"
+$freertosAssetRoot = Join-Path (Join-Path $projectRoot "pico_freertos_firmware") "assets"
 $secretsPath = Join-Path $picoRoot "wifi_secrets.py"
 $weatherSecretsPath = Join-Path $picoRoot "weather_secrets.py"
 
@@ -145,6 +147,14 @@ if (-not (Test-Path -LiteralPath $weatherSecretsPath -PathType Leaf)) {
     Write-Host "该配置文件已加入 .gitignore；部署脚本不会显示其内容。"
     exit 2
 }
+
+# 这 4 个只读资源已移到 C 固件目录，但归档 MicroPython 仍从 /pico/ 读取。
+$assetFiles = @(
+    "amap_root_ca.pem",
+    "font_cn.bin",
+    "hko_root_ca.pem",
+    "lunar_table.bin"
+)
 
 $packageFiles = @(
     "__init__.py",
@@ -166,7 +176,13 @@ $packageFiles = @(
     "weather_secrets.py"
 )
 
-$localFiles = @($packageFiles | ForEach-Object { Join-Path $picoRoot $_ })
+$localFiles = @($packageFiles | ForEach-Object {
+    if ($assetFiles -contains $_) {
+        Join-Path $freertosAssetRoot $_
+    } else {
+        Join-Path $picoRoot $_
+    }
+})
 $localFiles += (Join-Path $picoRoot "main.py")
 $missingFiles = @($localFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
 if ($missingFiles.Count -gt 0) {
@@ -259,7 +275,11 @@ $commands = @(
     $Port
 )
 foreach ($fileName in $packageFiles) {
-    $localPath = Join-Path $picoRoot $fileName
+    $localPath = if ($assetFiles -contains $fileName) {
+        Join-Path $freertosAssetRoot $fileName
+    } else {
+        Join-Path $picoRoot $fileName
+    }
     $remotePath = ":/pico/$fileName"
     $commands += @("fs", "cp", $localPath, $remotePath, "+")
 }

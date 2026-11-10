@@ -7,7 +7,7 @@
 
 #include "asset_store.h"
 
-/* 字形规格：与 pico/font_cn.py 的生成参数保持一致。 */
+/* 字形规格：与 tools/build_font.py 的生成参数保持一致。 */
 enum {
   kFontCoverageBits = 4,
   kFontAsciiWidth = 8,

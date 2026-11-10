@@ -1,7 +1,9 @@
 # Pico W 固件（FreeRTOS / C）
 
-本目录是整机固件的 **C + FreeRTOS** 实现，用来替代 `pico/` 下的 MicroPython 版本。
-两者共用同一份资源（字模、农历表、根证书）和同一套 UDP 协议，界面在 128×160 分辨率上逐像素对齐。
+本目录是整机固件的 **C + FreeRTOS** 实现，用来替代已退役的 `pico/` MicroPython
+版本（归档在 `archive/micropython` 分支）。只读资源（字模、农历表、根证书）已迁入
+本目录 `assets/`，归档版本部署时复用同一份文件；两端共用同一套 UDP 协议，界面在
+128×160 分辨率上逐像素对齐。
 
 ## 当前界面
 
@@ -60,7 +62,7 @@ Pico W 的无线模块是 CYW43439。pico-sdk 提供了开箱即用的
 | DC | GP21 |
 | RST | GP20 |
 
-这套引脚与仓库里的 `pico/st7735.py` 一致；该驱动已在实机预览中运行过。
+这套引脚与归档的 `pico/st7735.py` 驱动一致；该驱动已在实机预览中运行过。
 初始化命令序列（B1/B2/B3/B4/C0–C5/E0/E1、INVOFF、MADCTL 0xC8、COLMOD 0x05、DISPON）
 逐个字节对齐。针对杜邦线手工跳线的物理特性，固件 SPI 时钟选为 10 MHz（大幅降低
 高频反射与振铃），传输改用同步阻塞式切片轮询，并在每个命令周期与切片数据传输前后
@@ -190,7 +192,7 @@ ctest --test-dir build --output-on-failure
 ```
 
 > 测试要在 `pico_freertos_firmware/tests/` 下的构建目录里运行：字模与农历表是按
-> `../../../pico/` 的相对路径读取的，放到 `/tmp` 会直接失败。
+> `../../assets/` 的相对路径读取的，放到 `/tmp` 会直接失败。
 
 本机实测 13/13 通过，耗时约 0.06 s。
 
@@ -252,6 +254,7 @@ pico_freertos_firmware/
 ├── build.sh                 交叉编译入口（同步密钥 → CMake → uf2）
 ├── check_style.sh           clang-format + 80 列行宽闸门
 ├── CMakeLists.txt           pico-sdk + FreeRTOS SMP 工程，资源以 objcopy 嵌入
+├── assets/                  字模、农历表与两张根证书（只读，构建时嵌入）
 ├── images/                  README 界面图（宿主渲染，4× 放大）
 ├── include/                 对外契约头文件
 │   ├── system_state.h       快照类型与状态机 API
@@ -271,8 +274,9 @@ pico_freertos_firmware/
 └── tests/                   13 个主机测试 + cJSON 第三方源码
 ```
 
-密钥同步、字模与农历表生成、主机联调脚本在仓库根的 `tools/` 下；`build.sh` 通过
-`../tools/sync_secrets.py` 调用它们。
+字模、农历表与根证书放在本目录 `assets/`，构建时由 `CMakeLists.txt` 嵌入；
+生成脚本与主机联调脚本在仓库根的 `tools/` 下，`build.sh` 通过
+`../tools/sync_secrets.py` 同步密钥。
 
 ## 已知限制
 

@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* 字形数据由 pico/font_cn.py 生成，格式为 4bpp、高半字节在前的覆盖度。
- * 中文字形常驻 Flash（font_cn.bin），ASCII 与大号时钟数字体积很小，直接
- * 编译进固件。 */
+/* 字形数据由 tools/build_font.py 生成，格式为 4bpp、高半字节在前的覆盖度。
+ * 中文字形常驻 Flash（assets/font_cn.bin），ASCII 与大号时钟数字体积很小，
+ * 直接编译进固件。 */
 
 enum {
   kFontAsciiFirst = 0x20,

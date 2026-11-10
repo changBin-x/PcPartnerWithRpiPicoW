@@ -253,7 +253,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", type=int, default=START_YEAR)
     parser.add_argument("--end", type=int, default=END_YEAR)
-    parser.add_argument("--output", default="pico/lunar_table.bin")
+    parser.add_argument(
+        "--output", default="pico_freertos_firmware/assets/lunar_table.bin"
+    )
     args = parser.parse_args(argv)
     if args.start != START_YEAR or args.end != END_YEAR:
         parser.error("年表必须完整覆盖 1901–2100 年")
