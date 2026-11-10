@@ -1,23 +1,44 @@
 # Pico W 固件（FreeRTOS / C）
 
 本目录是整机固件的 **C + FreeRTOS** 实现，用来替代 `pico/` 下的 MicroPython 版本。
-两者共用同一份资源（字模、农历表、根证书）和同一套 UDP 协议，界面上尽量逐像素对齐。
+两者共用同一份资源（字模、农历表、根证书）和同一套 UDP 协议，界面在 128×160 分辨率上逐像素对齐。
 
-## 渲染结果
+## 当前界面
 
-下面两张图**不是**实机照片，而是宿主编译同一份渲染代码后输出的帧缓冲：
+![仪表盘与时钟页：左侧为 CPU/GPU/RAM 仪表盘，右侧为时间、日期、星期与干支农历时钟页](images/ui-overview.png)
 
-![仪表盘](images/firmware-dashboard.png)
+左图是仪表盘：顶栏显示 PC 与 Wi-Fi 状态，三张卡片分别显示 CPU、GPU、RAM 占用，
+底部是 ETH RX/TX 速率。右图是时钟页：天气胶囊、大号时间、日期、星期胶囊与干支农历。
 
-![时钟页](images/firmware-clock.png)
+两张图由 `tests/pipeline_e2e` 在宿主渲染，不是实机照片：连续 5 条真实 UDP 报文经
+「解析 → 状态机 → 渲染」得到仪表盘；再把时间推进到指标超时 3 秒之后，得到时钟页。
+原始帧缓冲为 128×160、RGB565，这里按 4 倍最近邻放大后拼接。实机运行同一份渲染代码，
+接线与 SPI 正常时，屏幕内容应与上图一致。
 
-上面是 5 条真实 UDP 报文经「解析 → 状态机 → 渲染」后的结果；下面是把时间推进到
-指标超时之后自动切到的时钟页。也就是说，只要屏幕接线与 SPI 正常，实机应当与此一致。
+仪表盘读数为 CPU 43%、GPU 0%、RAM 61%；时钟页时间为 2026-11-06 12:34:56，
+农历丙午年十月初七，天气晴 23°C。
+
+## 状态一览
+
+| 项目 | 现状 |
+| --- | --- |
+| 固件链路 | 显示、Wi-Fi、UDP 8765、NTP、天气、监督任务已接通 |
+| 宿主测试 | 13/13 通过（`ctest`，约 0.06 s） |
+| 实机 | 2026-11-08 有双模式运行记录；验收结论待确认 |
+| 资源 | Flash 804 KB / RAM 189 KB / SRAM 余 75 KB |
+
+## 界面与状态机
+
+- 收到 UDP 指标：显示仪表盘，CPU/GPU/RAM 卡片与 ETH RX/TX 刷新。
+- 连续 3 秒没有新指标：切到时钟页，PC 图标隐藏。
+- 时钟页收到新指标：立即切回仪表盘。
+- 仪表盘每 20 ms 取一次快照，只重绘脏区；RAM 超过 90% 时进度条转红。
+- 时钟页在 NTP 未同步时显示「时间同步中」，天气未就绪时显示占位。
 
 ## 为什么是 FreeRTOS 而不是 RT-Thread
 
 Pico W 的无线模块是 CYW43439。pico-sdk 提供了开箱即用的
-`pico_cyw43_arch_lwip_sys_freertos`，把 CYW43439 驱动、lwIP 与 FreeRTOS 的
+`pico_cyw43_arch_lwip_sys_freertos`，CYW43439 驱动、lwIP 与 FreeRTOS 的
 同步原语已经接好；RT-Thread 的 RP2040 支持缺少这套无线驱动，移植它等于先写一遍
 厂商驱动再谈业务，风险与工期都不可接受。因此选 pico-sdk + FreeRTOS **SMP 双核**：
 
@@ -26,7 +47,7 @@ Pico W 的无线模块是 CYW43439。pico-sdk 提供了开箱即用的
 | Core 0 | Wi-Fi 连接、UDP 指标接收、NTP 对时、高德 HTTPS 天气、监督任务 |
 | Core 1 | SPI+DMA 刷屏，独立渲染循环，不参与任何网络等待 |
 
-两个核之间**不共享锁**：状态由 `system_state` 保存一份快照，渲染任务每帧先把快照
+两个核之间**不加共享锁**：状态由 `system_state` 保存一份快照，渲染任务每帧先把快照
 快速拷贝成私有副本再画，绘制全程不持锁，界面因此不会被网络抖动卡住。
 
 ## 硬件接线
@@ -39,11 +60,11 @@ Pico W 的无线模块是 CYW43439。pico-sdk 提供了开箱即用的
 | DC | GP21 |
 | RST | GP20 |
 
-这套引脚与仓库里已在实机验证过的 `pico/st7735.py` 完全一致。
+这套引脚与仓库里的 `pico/st7735.py` 一致；该驱动已在实机预览中运行过。
 初始化命令序列（B1/B2/B3/B4/C0–C5/E0/E1、INVOFF、MADCTL 0xC8、COLMOD 0x05、DISPON）
 逐个字节对齐。针对杜邦线手工跳线的物理特性，固件 SPI 时钟选为 10 MHz（大幅降低
 高频反射与振铃），传输改用同步阻塞式切片轮询，并在每个命令周期与切片数据传输前后
-强制独立翻转片选 CS 电平，显式复位 ST7735S 内部字节解包状态机，彻底消除由于异步
+强制独立翻转片选 CS 电平，显式复位 ST7735S 内部字节解包状态机，消除异步
 DMA 导致的数据相位偏移和彩色横纹花屏。
 
 屏幕 128×160、RGB565、竖屏，显示偏移为 0（`colstart=rowstart=0`）。
@@ -74,12 +95,12 @@ export FREERTOS_KERNEL_PATH=$HOME/pico-toolchain/FreeRTOS-Kernel
 
 ## 配置密钥
 
-固件不保存任何明文凭据，构建前由 `tools/sync_secrets.py` 从仓库里已有的 Python
-配置生成一个被 `.gitignore` 忽略的 `include/firmware_secrets.h`。
+仓库不保存明文凭据；构建前由仓库根的 `tools/sync_secrets.py` 从 Python 配置生成一个
+被 `.gitignore` 忽略的 `include/firmware_secrets.h`。
 
 ```python
 # pico/wifi_secrets.py
-SSID = "你的 2.4GHz 热点"
+SSID = "你的 2.4 GHz 热点"
 PASSWORD = "口令"
 
 # pico/weather_secrets.py
@@ -87,10 +108,10 @@ AMAP_WEB_KEY = "高德 Web 服务 Key"
 CITY_OVERRIDE_ADCODE = "330200"   # 可选；留空则用固件内置默认城市
 ```
 
-`build.sh` 会自动执行同步脚本，也可以单独运行：
+`build.sh` 会自动执行同步脚本，也可以在 `pico_freertos_firmware/` 下单独运行：
 
 ```bash
-python3 tools/sync_secrets.py
+python3 ../tools/sync_secrets.py
 ```
 
 未配置时的降级行为：SSID 为空 → Wi-Fi 模块不初始化、其余任务照常运行并显示
@@ -119,12 +140,12 @@ cd pico_freertos_firmware
 
 ```text
 复位原因：非看门狗（上电或外部复位）。阶段标记 = 0。
-Wi-Fi 已初始化，准备连接 SSID：...
-Wi-Fi 已连接：...
+Wi-Fi 已初始化，准备连接 SSID：***
+Wi-Fi 已连接：***
 UDP 指标监听已启动：0.0.0.0:8765
 时间已同步：...（东八区）
 监督任务已启动：看门狗 8000 毫秒，检查周期 1000 毫秒。
-网络子系统启动：Wi-Fi 已创建，UDP 已创建，NTP 已创建，天气 已创建。
+网络子系统启动：Wi-Fi 已创建，UDP 已创建，NTP 已创建，天气已创建。
 [诊断] 堆剩余 41232 字节 / 历史最低 39880 字节
   supervisor     状态=3 优先级=3 栈水位=402 字
   ...
@@ -171,9 +192,13 @@ ctest --test-dir build --output-on-failure
 > 测试要在 `pico_freertos_firmware/tests/` 下的构建目录里运行：字模与农历表是按
 > `../../../pico/` 的相对路径读取的，放到 `/tmp` 会直接失败。
 
+本机实测 13/13 通过，耗时约 0.06 s。
+
 其中 `pipeline_e2e` 是端到端串联测试：把 PC 端 `pc_metrics.protocol.encode_packet`
 产出的真实字节喂进「解析 → 状态机 → 渲染」，最后落成 PPM 图并用像素断言验收，
-同时验证「指标超时 3 秒自动切到时钟页」这条业务规则。
+同时验证「指标超时 3 秒自动切到时钟页」这条业务规则。本文的两张界面图就来自这个
+测试：先渲染仪表盘，再推进时间触发超时，得到时钟页；测试输出两张 PPM，
+`tools/ppm_to_png.py` 再把它们转成 PNG。
 
 代码风格由 clang-format（Google 风格，80 列）与行宽检查把关：
 
@@ -181,7 +206,7 @@ ctest --test-dir build --output-on-failure
 ./check_style.sh
 ```
 
-主机侧还能跑一次真实 UDP 收发联调（本机回环，不需要 Pico）：
+主机侧还能跑一次真实 UDP 收发联调（本机回环，不需要 Pico），在仓库根目录运行：
 
 ```bash
 python3 tools/verify_udp_end_to_end.py
@@ -205,7 +230,7 @@ python3 tools/verify_udp_end_to_end.py
 与设计规格的偏差：显示任务栈由规格的 10 KB 降到 2 KB（渲染全程只用两块静态
 切片缓冲，栈上不放大数组）；Wi-Fi/UDP/NTP 由规格的各 4 KB 保持不变；天气任务
 16 KB 与规格一致。堆从规格的 80 KB 提到 96 KB，理由是 TLS 握手还要动态申请
-4~8 KB，而 SRAM 尚有 100 KB 从未被使用。
+4~8 KB；当前 SRAM 仍余 75 KB（见下表）。
 
 ## 资源占用（实测）
 
@@ -227,11 +252,12 @@ pico_freertos_firmware/
 ├── build.sh                 交叉编译入口（同步密钥 → CMake → uf2）
 ├── check_style.sh           clang-format + 80 列行宽闸门
 ├── CMakeLists.txt           pico-sdk + FreeRTOS SMP 工程，资源以 objcopy 嵌入
+├── images/                  README 界面图（宿主渲染，4× 放大）
 ├── include/                 对外契约头文件
 │   ├── system_state.h       快照类型与状态机 API
-│   ├── FreeRTOSConfig.h     SMP 双核、96KB 堆、栈溢出检查
+│   ├── FreeRTOSConfig.h     SMP 双核、96 KB 堆、栈溢出检查
 │   ├── lwipopts.h           NO_SYS=0、PBUF 池、tcpip 线程栈
-│   ├── mbedtls_project_config.h  裁剪到只留 TLS1.2 client + ECDHE
+│   ├── mbedtls_project_config.h  裁剪到只留 TLS 1.2 client + ECDHE
 │   └── asset_store.h        只读资源访问器
 ├── src/
 │   ├── main.c               启动顺序、FreeRTOS 钩子、双核心跳
@@ -245,9 +271,14 @@ pico_freertos_firmware/
 └── tests/                   13 个主机测试 + cJSON 第三方源码
 ```
 
+密钥同步、字模与农历表生成、主机联调脚本在仓库根的 `tools/` 下；`build.sh` 通过
+`../tools/sync_secrets.py` 调用它们。
+
 ## 已知限制
 
-1. **实机验证状态**。固件已完成在真实 Pico W + ST7735S 硬件环境下的全流程烧录与长周期实机验证。Wi-Fi 连接、UDP 8765 指标广播接收、NTP 对时、高德 HTTPS 天气及时钟/仪表盘双模式均已闭环运行，且通过 RTSP 视频流（`rtsp://admin:12345@192.168.10.26/stream0`）实时核验确认屏幕显示清晰稳定，数据动态刷新无卡顿。杜邦跳线引入的物理微弱反射已降至最低，不影响读数。
+1. **实机状态**。仓库的 2026-11-08 提交记录称：已在真实 Pico W + ST7735S 上完成
+   烧录，时钟与仪表盘双模式连续运行，并通过 RTSP 画面回传核验。该记录是仓库内的
+   实机运行说明，不等同于项目验收结论；本文的宿主测试与渲染图不能替代实机验收。
 2. **RP2040 没有 RTC**。断网时无法得到真实时间，时钟页会停在
    `--:--:--` 与「时间同步中」；这不是缺陷，是硬件限制。
 3. **城市默认值**。未配置 `CITY_OVERRIDE_ADCODE` 时使用内置默认城市，
