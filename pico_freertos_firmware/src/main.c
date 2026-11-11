@@ -16,6 +16,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "hardware/watchdog.h"
 #include "pico/stdlib.h"
 
 #include "asset_store.h"
@@ -102,6 +103,10 @@ void firmware_assert_failed(const char* file, int line) {
 
 void vApplicationMallocFailedHook(void) {
   taskDISABLE_INTERRUPTS();
+  /* 先武装复位再打印：本工程 stdio 只开 USB，中断关闭后 printf 可能永久
+   * 阻塞，若先打印就会把复位无限推迟、退化成等 8 秒硬件看门狗。10 ms
+   * 足够让日志尽力写出，又不至于让画面继续停在坏帧上。 */
+  watchdog_reboot(0, 0, 10);
   printf("FreeRTOS 堆耗尽: 请检查 configTOTAL_HEAP_SIZE\n");
   for (;;) {
     tight_loop_contents();
