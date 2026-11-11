@@ -58,6 +58,14 @@ target_link_libraries(test_ui_theme m)
 
 add_test(NAME ui_theme COMMAND test_ui_theme)
 
+# ------------------------------- task 2: 2/2 采样消抖（纯逻辑）
+add_executable(test_button_filter
+    test_button_filter.c
+    ../src/logic/button_filter.c
+)
+
+add_test(NAME button_filter COMMAND test_button_filter)
+
 add_test(NAME system_state   COMMAND test_system_state)
 add_test(NAME metrics_parser COMMAND test_metrics_parser)
 add_test(NAME lunar_service  COMMAND test_lunar_service)
