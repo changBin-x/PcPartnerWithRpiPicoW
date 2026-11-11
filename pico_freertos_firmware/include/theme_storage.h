@@ -14,6 +14,7 @@ typedef enum {
   kThemeStorageErrEnterTimeout, /**< enter 握手超时：回调未执行 */
   kThemeStorageErrExitTimeout,  /**< exit 握手超时：回调已执行 */
   kThemeStorageErrVerify,       /**< 回读与预期不一致 */
+  kThemeStorageErrInvalidArg,   /**< 入参越界（调用方违约）：不碰 Flash */
   kThemeStorageErrNoHeap,       /**< 堆预检未过：未进入握手 */
   kThemeStorageErrNoResources,  /**< 建避难任务失败：未动 Flash */
 } ThemeStorageResult;
@@ -28,9 +29,10 @@ UiThemeId theme_storage_init(void);
 /**
  * @brief 同步提交主题，阻塞直到写完或失败（预算 403 ms，上界 650 ms）。
  *
- * @param theme_id 目标主题；越界属调用方违约：先 configASSERT，在断言
- *                 可返回的构建里夹紧为 kThemeM3Dark 并返回
- *                 kThemeStorageErrVerify，全程不碰 Flash。
+ * @param theme_id 目标主题；越界属调用方违约：先 configASSERT（固件里
+ *                 停在 firmware_assert_failed() 自旋、不返回），在断言可
+ *                 返回的构建里返回 kThemeStorageErrInvalidArg；两种情形都
+ *                 不写 Flash，也不夹紧落盘。
  * @return ThemeStorageResult。
  */
 ThemeStorageResult theme_storage_commit(UiThemeId theme_id);

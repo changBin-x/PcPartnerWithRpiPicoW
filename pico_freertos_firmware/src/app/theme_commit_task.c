@@ -52,6 +52,9 @@ static ThemeCommitOutcome map_result(ThemeStorageResult result) {
       return kThemeCommitOutcomeNoHeap;
     case kThemeStorageErrNoResources:
       return kThemeCommitOutcomeNoResources;
+    case kThemeStorageErrInvalidArg:
+      /* 调用方违约：本仓不可达；按规格 §5.4.2 其余码一律转 Failed。 */
+      return kThemeCommitOutcomeFatal;
     case kThemeStorageErrEnterTimeout:
     case kThemeStorageErrExitTimeout:
       return kThemeCommitOutcomeTimeout;

@@ -108,9 +108,10 @@ UiThemeId theme_storage_init(void) {
 
 ThemeStorageResult theme_storage_commit(UiThemeId theme_id) {
   if ((unsigned)theme_id >= (unsigned)kThemeCount) {
+    /* 越界属调用方违约：不写 Flash，也不夹紧落盘——夹紧会让一次调用方
+     * bug 借「幂等重写」把用户已存主题改成主题 0（规格 §5.4.1）。 */
     configASSERT((unsigned)theme_id < (unsigned)kThemeCount);
-    theme_id = kThemeM3Dark;
-    return kThemeStorageErrVerify;
+    return kThemeStorageErrInvalidArg;
   }
   /* 堆预检必须挡在 flash_safe_execute() 之前：分配失败会撞上
    * vApplicationMallocFailedHook() 的复位路径。 */
