@@ -66,6 +66,14 @@ add_executable(test_button_filter
 
 add_test(NAME button_filter COMMAND test_button_filter)
 
+# ------------------------------- task 3: 12 字节配置打包解析（纯逻辑）
+add_executable(test_theme_config
+    test_theme_config.c
+    ../src/logic/theme_config.c
+)
+
+add_test(NAME theme_config COMMAND test_theme_config)
+
 add_test(NAME system_state   COMMAND test_system_state)
 add_test(NAME metrics_parser COMMAND test_metrics_parser)
 add_test(NAME lunar_service  COMMAND test_lunar_service)
