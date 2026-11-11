@@ -118,15 +118,19 @@ static void vTaskThemeCommit(void* context) {
      * 用它回答「扇区里是不是已经是这套主题」，免得再抄一份扇区偏移。 */
     const bool saved_matches = theme_storage_init() == snapshot.theme_id;
     const uint32_t now_ms = (uint32_t)pdTICKS_TO_MS(xTaskGetTickCount());
+    /* 窗口没空就先不推进策略：tick 一旦返回 Write 就把状态置为 Writing，
+     * 而 Writing 的唯一出口是写入结果；此处直接跳过会让本次上电再也落不
+     * 了盘（没有回滚通道）。等窗口是纯等待，不改变任何状态。 */
+    if (!wait_render_window_idle()) {
+      continue;
+    }
     switch (theme_commit_policy_tick(&s_policy, snapshot.theme_id, now_ms,
                                      saved_matches)) {
       case kThemeCommitActionShortCircuit:
         printf("theme: skip id=%u\n", (unsigned)s_policy.seen);
         break;
       case kThemeCommitActionWrite:
-        if (wait_render_window_idle()) {
-          commit_once();
-        }
+        commit_once();
         break;
       default:
         break;

@@ -28,8 +28,6 @@ int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
                                     const SystemSnapshot* current,
                                     UiRect* out_rects, int max_rects);
 
-/* 创建并绑定到 Core 1 的渲染任务 vTaskUIRender。
- * main.c 目前尚未调用本入口，但函数本身已编译进镜像。 */
 /**
  * @brief 登记输入源；传 NULL 表示不处理按键。
  *
@@ -40,7 +38,11 @@ int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
  */
 void ui_render_set_input_source(const UiInputSource* source);
 
-/* 创建渲染任务；成功返回 true。失败时调用方需要摘掉 UI 监视槽位。 */
+/**
+ * @brief 创建渲染任务并绑定到 Core 1。
+ *
+ * @return 创建成功返回 true；失败时调用方需要摘掉 UI 监视槽位。
+ */
 bool ui_render_start_task(void);
 
 #endif /* PICO_FREERTOS_FIRMWARE_INCLUDE_UI_RENDER_H_ */
