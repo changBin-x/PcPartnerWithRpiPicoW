@@ -48,6 +48,16 @@ add_executable(test_ui_layout
 )
 
 enable_testing()
+
+# ------------------------------- task 1: 主题调色板与对比度门禁
+add_executable(test_ui_theme
+    test_ui_theme.c
+    ../src/display/ui_theme.c
+)
+target_link_libraries(test_ui_theme m)
+
+add_test(NAME ui_theme COMMAND test_ui_theme)
+
 add_test(NAME system_state   COMMAND test_system_state)
 add_test(NAME metrics_parser COMMAND test_metrics_parser)
 add_test(NAME lunar_service  COMMAND test_lunar_service)
