@@ -74,6 +74,16 @@ add_executable(test_theme_config
 
 add_test(NAME theme_config COMMAND test_theme_config)
 
+# ------------------- 任务 4: 绕回、渲染窗口与提交状态机（纯逻辑）
+add_executable(test_theme_commit_policy
+    test_theme_commit_policy.c
+    ../src/logic/theme_commit_policy.c
+    ../src/logic/theme_switch.c
+    ../src/logic/render_window.c
+)
+
+add_test(NAME theme_commit_policy COMMAND test_theme_commit_policy)
+
 add_test(NAME system_state   COMMAND test_system_state)
 add_test(NAME metrics_parser COMMAND test_metrics_parser)
 add_test(NAME lunar_service  COMMAND test_lunar_service)
