@@ -1,0 +1,7 @@
+/* 主题配置扇区从 0x101FF000 开始；镜像末尾不得越过它。
+ *
+ * 本文件由 SDK 的 sections_default.incl 在 __flash_binary_end 定义之后
+ * include，因此这里的 ASSERT 能拿到最终镜像末尾地址。一旦越界，链接期
+ * 直接失败，而不是等运行期擦掉自己的代码。 */
+ASSERT(__flash_binary_end <= 0x101FF000,
+       "firmware image overlaps theme storage sector")

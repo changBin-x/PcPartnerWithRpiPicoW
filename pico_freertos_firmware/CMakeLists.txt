@@ -155,6 +155,12 @@ target_include_directories(pico_status_screen PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
     ${CMAKE_CURRENT_LIST_DIR}/src)
 
+# 链接期守卫：镜像末尾不得越过主题配置扇区（0x101FF000）。自定义的
+# section_extra_post_end.incl 会被 SDK 在主链接脚本的对应钩子处 include。
+pico_add_linker_script_override_path(pico_status_screen
+    ${CMAKE_CURRENT_LIST_DIR}/linker
+    FILES section_extra_post_end.incl)
+
 # pico_cyw43_arch_lwip_sys_freertos 是 SDK 2.3.1 中 CYW43439 + lwIP +
 # FreeRTOS 的官方组合目标（旧文档里的 pico_cyw43_arch_freertos 已不存在）。
 target_link_libraries(pico_status_screen PRIVATE
@@ -163,6 +169,8 @@ target_link_libraries(pico_status_screen PRIVATE
     FreeRTOS-Kernel-Heap4
     hardware_spi
     hardware_watchdog
+    hardware_flash            # flash_range_erase / flash_range_program
+    pico_flash                # flash_safe_execute
     pico_cyw43_arch_lwip_sys_freertos
     pico_mbedtls
     pico_stdlib)
