@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | :--- | :--- |
-| 规格版本 | **v1.7.1** |
+| 规格版本 | **v1.8.0** |
 | 创建日期 | 2026-11-10 |
 | 最后更新 | 2026-11-11 |
 | 目标平台 | Raspberry Pi Pico W（RP2040，Cortex-M0+ 双核，264 KB SRAM，2 MB QSPI Flash） |
@@ -26,6 +26,7 @@
 | v1.6.0 | 2026-11-11 | 依据 1.77 in / 116 ppi / 0.219 mm 像素间距的物理尺寸复判，主题 0 改两个常量：`track` `0x31a7`→`0x0020`（槽底由亮于卡片转为暗于卡片，`ΔL*(surface,track)` −10.06→+10.75）、`tertiary` `0xf5f1`→`0xFE00`（与 `error` 的 ΔE 23.1→73.7、绿色盲模拟 21.1→67.8）；两项层级缺陷（6.59 / 4.72）判定为「大色块可辨、阈值不追溯」并保留登记；§3.4.2 五格、§3.4.3 两格、§3.4.4 缺陷表四行减为两行，基线口径由「冻结」改为「已更新」 |
 | v1.7.0 | 2026-11-11 | 依据 D-2 决议给页面 A 顶栏加 `HH:MM:SS`（8 × 14 ASCII，64 px，居 88 px 空档，x = 32…95，`text` 色、未同步 `muted`）：§1.2 增第 5 条范围并改写边界句、§1.3 删去对应非目标、§3.3 落点表增一行、§3.4.1 第 3/4 项依据补「顶栏时刻」（不新增配对，17 项不变）、§4.4 增每秒一个 `{32,1,64,14}` 脏矩形（落 1 个切片、4096 B、3.3 ms/s）、§7 影响面、§8.5 增 V-2、§11.2 补宽度实测 |
 | v1.7.1 | 2026-11-11 | 依据 D-3/D-5 决议收口：主题名不上屏（页面 A 无 14 px 空行，页面 B 仅日历卡 y = 130…149 有空；上屏需 +980 B 字库与 5 处硬编码），字库保持 341 字不扩（唯一需求来源在 §1.3 非目标里）；§12 两行记录事实与备选 |
+| v1.8.0 | 2026-11-11 | 依据 D-4 决议（B）新增 `include/render_window.h` 渲染忙标志：`ui_render` 在 `ui_render_draw_dirty()` 前后翻转，提交任务只在空闲窗口进 `flash_safe_execute`（上限 40 ms，超时留 `Pending`）；把「403 ms 冻结」与「半张切片撕裂」拆成两个后果，§5.5 补 `spi_write_blocking` 忙等导致撕裂的机制与 1.6 % 暴露率，§8.5 增 V-3，§12 D-4 收口 |
 
 ---
 
@@ -550,6 +551,11 @@ void system_state_set_theme(UiThemeId theme_id);
   `{32, 1, 64, 14}` 一个矩形（每秒至多一次）。该矩形落在第 1 个切片
   （`kDisplaySliceRows = 16`，`st7735s_driver.h:14`），每次重绘 128 × 16 × 2 B = 4096 B，
   10 MHz SPI 下约 3.3 ms，即每秒 0.33 % 的占空，`kMaxDirtyRects = 8` 预算内。
+- **提交前的安全窗口**：渲染任务在调用 `ui_render_draw_dirty()` 之前 `render_window_enter()`、
+  返回之后 `render_window_leave()`；两个操作只写一个 `volatile bool`，设备侧各带一次 `__dmb()`。
+  `theme_commit_task` 在调 `theme_storage_commit()` 前轮询 `render_window_is_idle()`，上限 40 ms；
+  超时则本轮不写、留在 `Pending`（§5.4.2 第 3 步）。这样 Core 1 被避难任务夺走时一定停在
+  `vTaskDelay` 里，而不是停在 4096 字节的 `spi_write_blocking` 忙等循环里（§5.5）。
 - 全屏刷新的时间预算：`128 × 160 × 2 B = 40960 B`，10 MHz SPI 下
   `40960 × 8 / 10e6 = 32.8 ms`，加命令字节与逐切片开销约 35 ms；
 - `vTaskUIRender` 的循环结构与 `previous = current`（`ui_render.c:548`）**不改动**。
@@ -849,7 +855,10 @@ typedef enum {
    **只有这一种方式能离开 `Done` / `Failed`**（初始态为 `Idle`，同样由本步离开）；
 2. **仅当 `state == Pending`** 且到达截止时刻且 `s_seen != s_committed`：先读 XIP 地址比对——配置有效且
    `theme_id` 相同则直接转 `Done`（**零擦写**，并把 `s_committed` 置为该值）；
-3. **（承接第 2 步：仅当 `state == Pending` 且第 2 步没有短路成 `Done`）** 转 `Writing`，
+3. **（承接第 2 步：仅当 `state == Pending` 且第 2 步没有短路成 `Done`）** 先等安全窗口：
+   轮询 `render_window_is_idle()`，上限 40 ms（两个渲染周期）。拿不到就**本轮不写**、
+   留在 `Pending`，等下一个 100 ms 节拍再试——不消耗重试预算、不改状态、不打印日志。
+   拿到窗口后转 `Writing`，
    调用 `theme_storage_commit()`，按返回码分派：`kThemeStorageOk` → `Done`；
    `kThemeStorageErrNoResources` → `Failed`（与 `NoHeap` 一致：分配型失败一律不重试，
    否则「有没有终止条件」会取决于 D-11 落不落地）；
@@ -969,7 +978,7 @@ magic == THEME_FLASH_MAGIC
 | 影响 | 程度 | 说明 |
 | :--- | :--- | :--- |
 | 双核中断全关 | 预算 403 ms，最坏 603 ms | Core 0 的 CYW43、lwIP 定时器、UART 全部冻结；603 ms 是两次握手各超时的最坏推算，650 ms 是再加 47 ms 抖动余量的验收上界 |
-| 画面冻结 | 同上 | Core 1 的渲染任务被优先级 7 的避难任务抢占，无法出帧 |
+| 画面冻结 | 同上 | Core 1 的渲染任务被优先级 7 的避难任务抢占，无法出帧；抢占点若落在 `spi_write_blocking` 内会停在半张切片上（见下） |
 | UDP 丢包 | 最多 1–2 包 | 端口 8765 每秒一包；3 s 离线判定不会误触发 |
 | UI 槽位心跳 | 预算内安全，最坏擦线 | 1000 ms 槽位；按 603 ms 最坏推算仍有 40 % 余量，但这是算出来的、不是实测的 |
 | RTOS tick 停摆 | 403–603 ms | SysTick 被关中断，恢复后只补记 1 tick；所有基于 `xTaskGetTickCount()` 的超时（含 5 s 去抖）整体顺延。`get_absolute_time()` 域（显示时钟、mbedtls 时间源）不受影响 |
@@ -979,7 +988,16 @@ v1.2.0 在这里写的「看门狗不受影响」是错的：正常写入确实�
 系统进入 §5.4.3 描述的必死循环，8 s 后一定复位。
 
 **画面冻结发生在最后一次按键之后 5 s**，此时用户通常已经离开按键；写入不改 RAM 中的
-`theme_id`，屏幕内容不会跳变，观感是一次轻微卡顿。若不可接受，见 §12 D-4。
+`theme_id`，屏幕内容不会跳变。
+
+**但「冻结」不等于「停在完整帧上」。** `st7735s_driver.c:179` 的
+`spi_write_blocking(kSpi, s_slice_bytes, pixel_count * 2u)` 是 4096 字节的忙等循环（无 DMA）。
+Core 1 若正好停在这个循环里被夺走，CS 保持低电平、这一片只写了前半段，屏幕上会留下一条
+横向撕裂，直到 403 ms 后恢复执行才补完。粗算暴露窗口：一次指标更新触及 4–5 个脏切片
+≈ 16 ms，指标 1 Hz，故落在绘制中的概率约 **1.6 %**。
+v1.8.0 用 §4.4 的**安全窗口**把它降到 0：渲染任务在 `ui_render_draw_dirty()` 前后翻转忙标志，
+提交任务只在空闲窗口内进 `flash_safe_execute`。残余竞态是「看到空闲」到「避难任务真正挂住
+Core 1」之间的几十微秒，不到一次 SPI 切片（3.3 ms）的 1/60，不为此再加双向握手。
 
 ### 5.6 回调内的禁止事项
 
@@ -1020,6 +1038,7 @@ pico_freertos_firmware/
 │   ├── theme_config.h         # 纯逻辑：12 字节配置的打包与解析
 │   ├── theme_commit_policy.h  # 纯逻辑：提交状态机与终止条件
 │   ├── theme_switch.h         # 纯逻辑：主题推进与绕回
+│   ├── render_window.h        # 纯逻辑：渲染忙标志（零依赖，只含 stdbool）
 │   ├── ui_theme.h             # 调色板结构体 + ui_theme_get
 │   ├── theme_storage.h        # 提交/初始化接口 + 结果码
 │   ├── board_button.h         # GP15 采样
@@ -1083,7 +1102,7 @@ panic 处、需要重新烧录——与 `asset_store_init()` 失败时的行为�
 main.c ──> 全部模块（只做装配，不含业务逻辑）
 
 include/system_state.h ──> ui_theme_id.h（零依赖）
-display/ui_render.c    ──> ui_theme.h + ui_input.h
+display/ui_render.c    ──> ui_theme.h + ui_input.h + render_window.h
                           + st7735s_driver.h + system_state.h
 logic/button_filter.c  ──> 无（仅 stdbool/stdint）
 logic/theme_config.c   ──> theme_config.h（仅 stdint/stdbool/stddef）
@@ -1092,7 +1111,7 @@ logic/theme_switch.c   ──> theme_switch.h + ui_theme_id.h（零依赖）
 logic/ 不得反向依赖任何模块
 platform/board_button.c ──> hardware/gpio.h + ui_input.h + button_filter.h
 app/theme_commit_task.c ──> theme_commit_policy.h + theme_storage.h
-                            + system_state.h
+                            + render_window.h + system_state.h
 platform/theme_storage.c ──> hardware/flash.h + pico/flash.h + pico/stdlib.h
                             + FreeRTOS.h（堆查询与 configASSERT）
                             + theme_config.h + ui_theme_id.h
@@ -1138,6 +1157,10 @@ check_absent '#include *["<]\(hardware/\|pico/\)' "${REL_FIRMWARE}/src/logic/"
 本来就 include 了 `hardware/dma.h`、`hardware/gpio.h`、`hardware/spi.h`、
 `hardware/regs/dreq.h`、`pico/stdlib.h` 五条，它是驱动实现层，不受该约束。
 
+断言 2 的禁名单只有 `ui_render` / `ui_theme.h` / `st7735s_driver` 三项。`render_window.h`
+不在其中也不该在其中：它只 include `<stdbool.h>`，是零依赖抽象头，`theme_commit_task.c`
+引用它不构成「应用层反向依赖表现层」。
+
 三条断言与本功能的实现**同一次提交**落地，落地时 `src/logic/`、`src/display/ui_theme.c`、
 `src/platform/board_button.c` 必然已存在，`grep` 在仓库根 cwd 下返回 `rc=1`。
 断言与实现必须一起提交，不允许「先加断言、再补目录」的中间态：那段时间 `grep` 会因为
@@ -1175,7 +1198,8 @@ target_link_libraries(pico_status_screen PRIVATE
   - `test_ui_theme`：主表 6 × 17 项对比度/色差断言（§8.5 R-7），只编 `ui_theme.c`；
   - `test_button_filter`：2/2 采样消抖；
   - `test_theme_config`：12 字节打包、解析与全部校验分支（覆盖 §8.2 N-1..N-8）；
-  - `test_theme_commit_policy`：5 s 去抖、零擦写短路、绕回（含 `theme_switch.c`），
+  - `test_theme_commit_policy`：5 s 去抖、零擦写短路、绕回（含 `theme_switch.c`）、
+  `render_window` 的进入/离开/有界等待（忙时不得进提交、超时返回 false），
   以及两条终止性断言——「连续两次 `Verify` 后必须停在 `Failed`」「`Failed` 不会因截止时刻
   已过而被下一个节拍拉回 `Writing`」。这两条正是 v1.5.2 补上的状态门。
 
@@ -1196,15 +1220,16 @@ target_link_libraries(pico_status_screen PRIVATE
 | `src/display/ui_theme.c`（新） | 6 套常量表 | 同上 |
 | `include/system_state.h` | `+ theme_id`、`+ system_state_set_theme` | `test_system_state` 新增用例 |
 | `src/state/system_state.c` | 锁内写入、初始化默认值、越界夹紧 | 同上 |
-| `src/display/ui_render.c` | 删 10 个 `kColor*` 枚举改取调色板；`collect_dirty_regions` 加全屏早退；新增输入源登记；`render_top_bar()` 增 `HH:MM:SS` | `test_ui_render` 有 2 个常量随主题 0 新值同步更新，22 处断言谓词不变 |
+| `src/display/ui_render.c` | 删 10 个 `kColor*` 枚举改取调色板；`collect_dirty_regions` 加全屏早退；新增输入源登记；`render_top_bar()` 增 `HH:MM:SS`；draw 前后翻转 `render_window` | `test_ui_render` 有 2 个常量随主题 0 新值同步更新，22 处断言谓词不变 |
 | `src/display/ui_layout.c` | `+ prev->theme_id != curr->theme_id` → 全屏矩形 + 早退 | `test_ui_layout` 新增用例 |
 | `include/theme_storage.h` + `src/platform/theme_storage.c`（新） | 擦写、回读、结果码（薄适配层） | 仅固件侧编入；逻辑已下沉 `test_theme_config` |
 | `include/button_filter.h` + `src/logic/button_filter.c`（新） | 2/2 采样消抖 | 新增 `test_button_filter` |
 | `include/theme_config.h` + `src/logic/theme_config.c`（新） | 12 字节打包/解析/校验 | 新增 `test_theme_config` |
 | `include/theme_commit_policy.h` + `src/logic/theme_commit_policy.c`（新） | 完整提交状态机：去抖、零擦写、`Verify` 单次重试、终止条件（注入时钟） | 新增 `test_theme_commit_policy` |
 | `include/theme_switch.h` + `src/logic/theme_switch.c`（新） | `(current + 1) % kThemeCount` 绕回 | 并入 `test_theme_commit_policy` |
+| `include/render_window.h`（新） | 渲染忙标志 + 有界等待，零依赖 | 并入 `test_theme_commit_policy`（不新增测试目标） |
 | `include/board_button.h` + `src/platform/board_button.c`（新） | GP15 采样 | 仅固件侧编入 |
-| `include/theme_commit_task.h` + `src/app/theme_commit_task.c`（新） | 任务创建 + 周期驱动 | 仅固件侧编入 |
+| `include/theme_commit_task.h` + `src/app/theme_commit_task.c`（新） | 任务创建 + 周期驱动 + 提交前等安全窗口 | 仅固件侧编入 |
 | `src/main.c` | 组合根装配 | 冷启动顺序 |
 | `CMakeLists.txt` | `+ hardware_flash + pico_flash`、链接脚本覆盖 | 冷构建 |
 | `linker/section_extra_post_end.incl`（新） | 链接期边界断言 | 冷构建 |
@@ -1272,6 +1297,7 @@ target_link_libraries(pico_status_screen PRIVATE
 | :--- | :--- |
 | V-1 | 六套主题在实机上目视复验：§3.4.2 标粗的 3 处 CR 擦线（4.70 / 4.73 / 4.77）、主题 0 的两项层级缺陷（6.59 / 4.72，只能判断「卡片能否与画布分开」，无法量测），以及**细笔画可读性**——14 px 中文与 8 px ASCII 小字在六套下的实际观感 |
 | V-2 | 实机确认页面 A 顶栏 `HH:MM:SS` 在 88 px 空档（x = 20…107）内不与两枚 16 × 14 图标重叠（左右各余 12 px），六套配色下 `text`/`background` 可读；未同步时 `--:--:--` 与 `muted` 的观感 |
+| V-3 | 页面 A 连续触发 20 次提交（每次停留 > 5 s），逐次观察：**不出现横向撕裂、不出现半张切片**；冻结期间画面停在完整帧上 |
 | R-1 | Flash 增量 ≤ 1 KB（主题表 144 B + 代码 + 字符串），不含 4 KB 配置扇区 |
 | R-2 | RAM 增量 ≤ 2 KB（页缓冲 256 B + 提交任务静态栈 1 KB + 少量状态）；不含 `flash_safe_execute` 每次约 1.1 KB 的临时动态堆 |
 | R-3 | `check_style.sh` 通过（含 §6.2 三条依赖断言），代码块与源文件均 ≤ 80 列 |
@@ -1312,6 +1338,7 @@ ctest --test-dir pico_freertos_firmware/tests/build --output-on-failure
 | :--- | :---: | :--- | :--- |
 | 最后 5 s 内的切换因掉电丢失 | 中 | 低 | 有意权衡，写入 §8.4 S-1 |
 | 擦除期间画面冻结 | 中 | 中 | 预算 403 ms、最坏 603 ms（验收上界 650 ms）；知情接受，备选方案见 §12 D-4 |
+| 擦写窗口把 Core 1 夺走时停在半张切片上（横向撕裂） | 中 | 中 | 未加安全窗口时约 1.6 %（16 ms 绘制窗口 / 1 s 指标周期）；v1.8.0 用 `render_window` 忙标志把提交限制在空闲窗口内，残余几十微秒，§8.5 V-3 验收 |
 | 擦除期间 Wi-Fi/lwIP 停顿导致丢包 | 中 | 低 | 3 s 离线判定不受影响 |
 | `flash_safe_execute` 建避难任务时堆不足（`-9`，实际先撞 malloc 钩子） | 低 | 高 | 同一根因只记一次：预检 `xPortGetFreeHeapSize() >= 1536`（经验值，不保证连续块）只能降低概率；分配真失败时 `pvPortMalloc` 先调 `main.c:103-109` 的死循环钩子，`-9` 根本返回不出来，后果是 8 s 复位。`kThemeStorageErrNoResources` 因此永远返回不出来，按不重试转 `Failed` 处理即可 |
 | 握手超时（`PICO_ERROR_TIMEOUT`） | 低 | **高** | enter / exit 超时**都不重试**；只有回读不一致重试 1 次、间隔 1 s。**在返回码分派里只有这两种握手超时才必然 8 s 复位**（分派之外还有 malloc 钩子那条路，见上一行）；`-9` 不属握手超时且今天不可达（上一行），按分配型失败转 `Failed`、不重试（§5.4.3） |
@@ -1398,7 +1425,7 @@ v1 不动；这也说明「116 px」是给**新文案**的门槛，不是对存�
 | D-1 | 主题用颜色名还是流派名 | **颜色名（黑琥珀/荧光绿/霓虹青/深海青/霓虹洋红）**，已定 v1.6.0：流派名描述的是未实现的版式（§1.3 非目标），颜色名与实测色相一致 | 保留流派名 + 免责声明 |
 | D-2 | 页面 A 顶栏是否加时刻 | **加 `HH:MM:SS`**，已定 v1.7.0（用户 m01284 选 A）：8 × 14 ASCII，x = 32…95、y = 1，`text` 色，未同步时 `muted` 画 `--:--:--`；每秒一个 `{32,1,64,14}` 脏矩形，落 1 个切片、4096 B、约 3.3 ms（0.33 % 占空）；不扩字库、不新增对比度配对 | 不加；或只到分（`HH:MM`，40 px，x = 44…83，每分钟一次） |
 | D-3 | 主题名是否上屏 | **不上屏，只进串口日志**，已定 v1.7.1（用户 m01350 选 A）：页面 A 没有任何 14 px 空行（卡片止于 y = 124、RX 起于 128、TX 止于 156，只剩两处 4 px）；页面 B 仅日历卡内 y = 130…149 有 20 px 空位。上屏需 +10 汉字 = +980 B Flash（98 B/字：琥/珀/荧/光/绿/霓/虹/洋/红 + `色`）并同步 5 处硬编码 `341`，只换回一个仅在页面 B 可见的装饰标签 | 页面 B 日历卡 y = 133 居中显示中文名；或顶栏 x = 96…107 加 12 × 12 三色色块（0 个新字形、0 处硬编码） |
-| D-4 | 擦写期间画面冻结 ≈ 403 ms 是否能接受 | 接受 | 仅在时钟页提交；或延迟到夜间空闲 |
+| D-4 | 擦写期间画面冻结 ≈ 403 ms 是否能接受 | **接受冻结、不接受撕裂**，已定 v1.8.0（用户 m01359 选 B）：渲染任务在 `ui_render_draw_dirty()` 前后翻转 `render_window` 忙标志，提交任务只在空闲窗口进 `flash_safe_execute`，上限等 40 ms、超时留 `Pending` 下一节拍重试；残余竞态几十微秒不计 | 接受撕裂（0 行改动，1.6 % 概率 0.4 s 撕裂）；或把提交搬进渲染任务（劫持 Core 0，UDP 可能晚 1 s） |
 | D-5 | 是否扩字库 / 扩 ASCII | **不扩**，已定 v1.7.1：唯一需求来源是参考 HTML 的版式，而该版式整体在 §1.3 非目标里；当前 341 字 + 71 个 ASCII 覆盖全部屏幕文案，D-3 也已定为不上屏，扩字库没有消费者 | 按参考 HTML 约 +122 字（+11.7 KB Flash、+488 B RAM） |
 | D-6 | 主题 0 的四项已知缺陷是否修 | **修两项（`track`/`tertiary`），不修两项（ΔL\* 层级）**；已落 v1.6.0 | 修：槽方向错误与告警同色落在 1.31 mm / 0.88 mm 的薄元素上，尺寸放大了后果；不修：6.59 / 4.72 是大色块，可辨 |
 | D-7 | 首次上电的默认主题 | **0（M3 深色）**，已定 v1.6.0：其余五套从未实机验证，不作出厂默认；`theme_storage_init()` 回退与 `theme_storage_commit()` 夹紧两处均指向它 | 1（黑琥珀） |
