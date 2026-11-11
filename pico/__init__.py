@@ -1,1 +1,0 @@
-"""Pico dashboard application package."""

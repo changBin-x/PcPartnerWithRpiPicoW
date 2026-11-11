@@ -235,7 +235,7 @@ def write_glyph_module(
     return blob_size
 
 
-def build_font(chinese_font_path, ascii_font_path, size, output_path, blob_path=None):
+def build_font(chinese_font_path, ascii_font_path, size, output_path=None, blob_path=None):
     if size != CHINESE_HEIGHT:
         raise ValueError("正文中文字框必须为 14 像素高")
     chinese_font = _font(chinese_font_path, 46)
@@ -271,15 +271,23 @@ def build_font(chinese_font_path, ascii_font_path, size, output_path, blob_path=
     )
 
     if blob_path is None:
-        blob_path = Path(output_path).with_name("font_cn.bin")
-    write_glyph_module(
-        output_path,
-        blob_path,
-        chinese_glyphs,
-        ascii_glyphs,
-        clock_glyphs,
-        weather_digit_glyphs,
-    )
+        blob_path = (
+            Path(__file__).resolve().parent.parent
+            / "pico_freertos_firmware"
+            / "assets"
+            / "font_cn.bin"
+        )
+    if output_path is None:
+        _write_flash_glyphs(blob_path, chinese_glyphs)
+    else:
+        write_glyph_module(
+            output_path,
+            blob_path,
+            chinese_glyphs,
+            ascii_glyphs,
+            clock_glyphs,
+            weather_digit_glyphs,
+        )
     return len(chinese_glyphs), len(ascii_glyphs), len(clock_glyphs)
 
 
@@ -288,11 +296,15 @@ def main(argv=None):
     parser.add_argument("--font", required=True, help="CJK TrueType/OpenType font file")
     parser.add_argument("--ascii-font", required=True, help="Latin TrueType/OpenType font file")
     parser.add_argument("--size", type=int, default=14, help="CJK glyph cell height (must be 14)")
-    parser.add_argument("--output", default="pico/font_cn.py", help="output MicroPython module")
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="optional MicroPython module output (archive branch only)",
+    )
     parser.add_argument(
         "--bin-output",
-        default=None,
-        help="flash-backed CJK bitmap file (default: font_cn.bin beside --output)",
+        default="pico_freertos_firmware/assets/font_cn.bin",
+        help="C firmware CJK bitmap asset",
     )
     args = parser.parse_args(argv)
     try:
@@ -301,11 +313,17 @@ def main(argv=None):
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
-    blob_path = args.bin_output or str(Path(args.output).with_name("font_cn.bin"))
-    print(
-        "Generated %d CJK, %d ASCII and %d clock glyphs (4-bit coverage): %s + %s"
-        % (chinese_count, ascii_count, clock_count, args.output, blob_path)
-    )
+    blob_path = args.bin_output
+    if args.output is None:
+        print(
+            "Generated %d CJK, %d ASCII and %d clock glyphs (4-bit coverage): %s"
+            % (chinese_count, ascii_count, clock_count, blob_path)
+        )
+    else:
+        print(
+            "Generated %d CJK, %d ASCII and %d clock glyphs (4-bit coverage): %s + %s"
+            % (chinese_count, ascii_count, clock_count, args.output, blob_path)
+        )
 
 
 if __name__ == "__main__":

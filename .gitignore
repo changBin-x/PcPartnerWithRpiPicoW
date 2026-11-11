@@ -13,3 +13,20 @@ docs/PROJECT_HANDOFF.md
 AGENTS.md
 CONTEXT.md
 .dsh-vision-router
+
+# 固件构建产物
+pico_freertos_firmware/tests/build/
+pico_freertos_firmware/tests/build_*/
+pico_freertos_firmware/build/
+pico_freertos_firmware/build_*/
+build/
+build_*/
+*.uf2
+*.elf
+*.dis
+
+# 固件运行时密钥（由 tools/sync_secrets.py 从 pico/*_secrets.py 生成）
+pico_freertos_firmware/include/firmware_secrets.h
+
+# 临时渲染与预览目录
+.tmp/

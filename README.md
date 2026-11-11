@@ -21,9 +21,11 @@
 这是一个「主机采集 + 单片机显示」的局域网小项目：
 
 - 主机端（`pc_metrics/`）用 Python 与 psutil 采集指标，稳态约每秒向所在子网的定向广播地址发送一个不超过 512 字节的 JSON 数据包（UDP 8765）。
-- Pico 端（`pico/`）用 MicroPython 接收指标并驱动 TFT 屏幕；没有指标时显示时钟、农历和天气。
+- Pico 端当前使用 C + FreeRTOS 固件（`pico_freertos_firmware/`）接收指标并驱动 TFT 屏幕；没有指标时显示时钟、农历和天气。`pico/` 只保留本地密钥配置（见 [`pico/README.md`](pico/README.md)）；MicroPython 实现已归档在 `archive/micropython` 分支与 `micropython-final` 标签。
 - 主机端不开放任何 TCP/HTTP 端口，也不依赖云服务；数据只在本机所在广播域内传播。
-- 界面预览来自 2026-11-03 的 Pico W + ST7735S 实机。2026-11-06 修复版本已通过本机 mpremote 部署到 MicroPython 1.29.0，并验证天气请求与真实 UDP 指标接收；完整验收尚未结束，详见下方「本轮真机验证」。当前 199 项单元测试在 Linux + Python 3.12.3 上通过；修复后的 Windows 路径未实跑。
+- 界面预览来自 2026-11-03 的 Pico W + ST7735S 实机（归档 MicroPython 版）。2026-11-06 的归档版本验证记录见文末；当前主机侧 92 项单元测试在 Linux + Python 3.12.3 上通过（2026-11-10 复核），C 固件另有 13 个宿主测试。修复后的 Windows 路径未实跑。
+
+> **Pico 端当前实现是 C + FreeRTOS 固件**，位于 [`pico_freertos_firmware/`](pico_freertos_firmware/README.md)：协议与界面与归档的 MicroPython 版本对齐，只读资源已迁入该目录的 `assets/`；改用 pico-sdk + FreeRTOS SMP 双核（Core 0 跑网络、Core 1 独占刷屏），带硬件看门狗与串口诊断。ST7735S 驱动采用 10 MHz SPI 时钟并实现独立的 CS 周期同步控制，仓库记录显示，2026-11-08 已在真实 Pico W + ST7735S 上完成时钟模式与仪表盘模式的连续运行，并通过 RTSP 画面回传核验；该记录不等同于整机验收结论。详细说明见该目录的 README。
 
 ## 功能特性
 
@@ -70,20 +72,20 @@
 | DC | GP21 |
 | CS | GP17 |
 
-- 目标硬件为 **Pico W（RP2040）**，不是 Pico 2 W（RP2350）；项目使用 MicroPython 1.29.0，并已完成整机部署验证。
-- SPI0，时钟 20 MHz，极性 0、相位 0，MSB first；屏幕供电与背光按模块标识接线（待补充：所用屏幕模块型号与供电电压）。
+- 目标硬件为 **Pico W（RP2040）**，不是 Pico 2 W（RP2350）；当前固件为 C + FreeRTOS，源码、构建与烧录说明见 [`pico_freertos_firmware/README.md`](pico_freertos_firmware/README.md)。
+- SPI0，极性 0、相位 0，MSB first。C + FreeRTOS 固件使用 10 MHz（可抑制杜邦跳线的高频信号反射）；屏幕供电与背光按模块标识接线（待补充：所用屏幕模块型号与供电电压）。
 - 屏幕分辨率 128×160，RGB565，竖屏显示。
 
 ## 环境要求
 
 | 项目 | 要求 | 说明 |
 | --- | --- | --- |
-| 主机系统 | Windows 10/11 + PowerShell | 采集启动与固件部署脚本为 PowerShell |
+| 主机系统 | Windows 10/11 + PowerShell | 采集启动脚本为 PowerShell；C 固件构建使用 bash |
 | Python | 3.10 或更新版本 | `tools/start_metrics.ps1` 启动前检查 |
 | 主机依赖 | `psutil>=5.9,<8` | `requirements-host.txt` |
-| 微控制器 | Raspberry Pi Pico W（RP2040） | 目标固件 MicroPython 1.29.0 |
+| 微控制器 | Raspberry Pi Pico W（RP2040） | 当前固件为 C + FreeRTOS |
 | 显示屏 | ST7735S 128×160 SPI TFT | 接线见上表 |
-| 部署工具 | `mpremote` | 可装在项目 `.venv` 或全局 PATH |
+| 固件构建（可选） | pico-sdk ≥2.3.1、FreeRTOS-Kernel、`arm-none-eabi-gcc` ≥13.2 | 仅在重新构建 C 固件时需要，详见 C 固件 README |
 | GPU 采集（可选） | NVIDIA 驱动 + `nvidia-smi` | 缺失时 GPU 显示 `--` |
 | 网络 | 主机有线、Pico Wi‑Fi 位于同一可广播子网 | 访客 Wi‑Fi、客户端隔离、跨 VLAN 会阻断广播 |
 | 构建工具（可选） | `requests>=2.31,<3`、`Pillow>=10,<13` | 仅在重新生成字库或农历表时使用 |
@@ -123,13 +125,20 @@ powershell -ExecutionPolicy Bypass -File tools/start_metrics.ps1
 
 ### 2. 配置 Pico 本地参数
 
-在项目根目录复制模板并填写（两个文件均已被 `.gitignore` 忽略）：
+Pico 端 C 固件仍从 `pico/` 读取两份本地密钥文件；它们只用于构建前生成
+`firmware_secrets.h`，不再部署 Python 固件。文件已被 `.gitignore` 忽略，请直接创建
+（详见 [`pico/README.md`](pico/README.md)）：
 
-```powershell
-Copy-Item pico/wifi_secrets.example.py pico/wifi_secrets.py
-Copy-Item pico/weather_secrets.example.py pico/weather_secrets.py
-notepad pico/wifi_secrets.py
-notepad pico/weather_secrets.py
+```python
+# pico/wifi_secrets.py
+SSID = "你的 Wi-Fi 名称"
+PASSWORD = "你的 Wi-Fi 密码"
+```
+
+```python
+# pico/weather_secrets.py
+AMAP_WEB_KEY = "你的高德 Web 服务 Key"
+CITY_OVERRIDE_ADCODE = ""  # 可选；六位高德 adcode，留空则按公网 IPv4 自动定位
 ```
 
 | 文件 | 字段 | 说明 |
@@ -137,45 +146,31 @@ notepad pico/weather_secrets.py
 | `pico/wifi_secrets.py` | `SSID` | 路由器 Wi‑Fi 名称 |
 | | `PASSWORD` | Wi‑Fi 密码 |
 | `pico/weather_secrets.py` | `AMAP_WEB_KEY` | 高德开放平台 **Web 服务** Key（需启用 IP 定位与天气查询） |
-| | `CITY_OVERRIDE_ADCODE` | 可选；六位高德 adcode，留空则按公网 IPv4 自动定位 |
+| | `CITY_OVERRIDE_ADCODE` | 可选；六位高德 adcode，留空则自动定位 |
 
-**安全提示**：`*_secrets.py` 不得提交、粘贴到聊天或日志，也不要出现在截图中。天气 Key 会随固件写入 Pico 闪存，设备持有者可能提取；建议为设备单独创建 Key 并限制配额。部署脚本只检查文件是否存在，不读取、不显示配置内容。
+**安全提示**：`*_secrets.py` 不得提交、粘贴到聊天或日志，也不要出现在截图中。天气 Key 会随固件写入 Pico 闪存，设备持有者可能提取；建议为设备单独创建 Key 并限制配额。构建脚本只读取文件并生成 C 头文件，不打印配置内容。
 
-### 3. 安装 mpremote 并部署固件
+### 3. 构建并烧录 C 固件
 
-若 `mpremote` 未安装：
+C 固件位于 `pico_freertos_firmware/`，依赖、构建脚本、UF2 烧录与串口诊断见该目录的
+[`README.md`](pico_freertos_firmware/README.md)。典型流程：
 
-```powershell
-python -m pip install mpremote
+```bash
+cd pico_freertos_firmware
+./build.sh
 ```
 
-部署脚本会优先使用项目 `.venv\Scripts\mpremote.exe`，找不到时使用 PATH 中的 `mpremote`。
+构建产物为 `build/pico_status_screen.uf2`。按住 BOOTSEL 上电，把 UF2 拖入 `RPI-RP2`
+磁盘即可。**烧录会覆盖设备上的 MicroPython 解释器**；需要回退时使用
+`archive/micropython` 分支与 `micropython-final` 标签中的归档说明。
 
-确认 Pico 串口未被 Thonny 等程序占用，然后运行（默认 `COM4`）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1
-```
-
-指定其他串口：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
-```
-
-部署脚本会：
-
-1. 检查 `pico/wifi_secrets.py` 与 `pico/weather_secrets.py` 是否存在（缺失时退出码 `2`）；
-2. 检查部署清单中的固件文件是否齐全；
-3. 枚举系统串口，确认 `-Port` 指定的端口真实存在，再通过 `mpremote` 只读探测设备，确认运行的是 MicroPython；
-4. 在设备上创建 `/pico/` 并校验 `PICO_PACKAGE_READY` 哨兵，上传 17 个文件（15 个固件文件 + 2 份本地配置，含两份 TLS 根证书、字库 `font_cn.bin` 与农历表 `lunar_table.bin`），并把 `pico/main.py` 复制为设备根目录 `/main.py`；
-5. 重启设备。
-
-退出码：`0` 成功，`1` 一般失败（文件缺失、端口不存在、mpremote 缺失、连接/上传失败或超时），`2` 缺少本地配置。连接探测与建目录各 30 秒超时，上传 180 秒超时；超时通常是 Thonny 占用串口或设备无响应，按提示拔插（必要时按住 BOOTSEL）后重试即可，重复运行会覆盖同名文件、不会删除设备上的其他文件，也不会显示配置内容。
+> **归档说明**：MicroPython 版本（含 `tools/deploy_pico.ps1`、17 项部署清单与
+> `pico/*.py`）只存在于 `archive/micropython` 分支；当前分支的 `pico/` 仅保留本地
+> 密钥文件，避免误把 Python 固件当成主路径。当前分支不再提供 `mpremote` 部署脚本。
 
 ### 4. 上电自检
 
-设备重启后自动运行 `/main.py`：连接 Wi‑Fi → NTP 校时 → 显示时钟模式并请求天气；收到电脑指标后切换到仪表盘。正常使用时不需要打开 Thonny 或其他串口工具。
+设备上电后自动运行 C 固件：连接 Wi‑Fi → NTP 校时 → 显示时钟模式并请求天气；收到电脑指标后切换到仪表盘。正常使用时不需要打开串口工具。
 
 ## 使用说明
 
@@ -191,7 +186,7 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 - 左侧为电脑图标，右侧为 Wi‑Fi 图标。
 - 电脑图标：仪表盘模式为激活色，时钟模式（电脑离线）为非激活色。
 - Wi‑Fi 已连接时点亮，断开时切换为非激活色。
-- 激活色与警示色定义在 `pico/display.py` 的 M3 颜色常量中。
+- 激活色与警示色定义在 `pico_freertos_firmware/src/display/ui_render.c` 的 M3 颜色令牌中。
 
 ### 天气行说明
 
@@ -206,7 +201,7 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 
 ### 串口日志
 
-使用 `mpremote` 或其他串口工具查看设备输出（Pico 通过 USB CDC 通信，波特率参数不影响数据）。注意：调试会中断正在运行的 `main.py`，结束后请重启设备。
+使用任意 USB CDC 串口终端（如 PuTTY、`screen`、`minicom`）查看设备输出；C 固件不依赖 MicroPython 解释器。串口终端会占用设备端口，调试结束后关闭即可，不会中断固件运行。
 
 - `WX ok <温度> <天气>`：天气刷新成功。
 - `WX err <异常类型> [<errno>]`：天气刷新失败，只输出类型名与数字错误码（如存在），不输出 URL、Key 或响应体。
@@ -240,8 +235,8 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 | 天气行显示「天气未配置」 | 未填写 `AMAP_WEB_KEY`，或 Key 未启用 Web 服务 |
 | 天气行显示「旧」 | 设备无法访问高德 API（DNS/TLS/网络出口问题），先检查串口 `WX err` |
 | 时间显示 `--:--:--` | Pico 未联网或 NTP 请求失败；确认 Wi‑Fi 与 UDP 123 出站未被拦截 |
-| 部署失败（退出码 1） | 串口被占用、`-Port` 指定的端口不存在、未安装 `mpremote`，或设备未运行 MicroPython；脚本会列出本机串口 |
-| 部署报缺少本地配置（退出码 2） | 未复制 `pico/wifi_secrets.py` 或 `pico/weather_secrets.py` |
+| C 固件构建失败 | 检查 pico-sdk ≥2.3.1、FreeRTOS-Kernel 的 RP2040 port、`arm-none-eabi-gcc` ≥13.2 与 submodule 是否齐全；详见 C 固件 README |
+| 设备无法联网或天气未配置 | 检查 `pico/wifi_secrets.py`、`pico/weather_secrets.py` 是否创建，以及 `AMAP_WEB_KEY` 是否为空 |
 | GPU 显示 `--` | 没有 NVIDIA 显卡/驱动、`nvidia-smi` 不在 PATH，或连续失败后处于 10 秒降频期（终端会提示一次） |
 
 ## 配置参考
@@ -254,21 +249,16 @@ powershell -ExecutionPolicy Bypass -File tools/deploy_pico.ps1 -Port COM5
 
 | 常量 | 值 | 位置 |
 | --- | --- | --- |
-| UDP 广播端口 | `8765` | `pc_metrics/config.py`、`pico/udp_receiver.py` |
-| 指标包上限 | `512` 字节 | `pc_metrics/protocol.py`、`pico/udp_receiver.py` |
-| 协议版本 | `1` | `pc_metrics/protocol.py` |
-| 离线判定 | `3000` 毫秒 | `pico/app.py` |
-| 主循环 tick | `100` 毫秒 | `pico/app.py` |
-| 重绘时机 | 时间秒数变化（兜底 `1000` 毫秒） | `pico/app.py` |
-| 看门狗超时 | `8000` 毫秒（RP2040 上限 8388） | `pico/main.py` |
-| 天气响应读取预算 | `5` 秒（不含 DNS、连接与 TLS 握手） | `pico/weather.py` |
-| 农历在线复核退避 | 1 分钟 / 5 分钟 / 30 分钟 / 6 小时 | `pico/lunar.py` |
-| 天气刷新 | 30 分钟 | `pico/weather.py` |
-| 天气失败退避 | 1 / 5 / 15 / 30 分钟 | `pico/weather.py` |
-| NTP 重校间隔 | 6 小时 | `pico/time_sync.py` |
-| NTP 失败退避 | 30 秒 / 1 / 5 / 15 分钟 | `pico/time_sync.py` |
-| Wi‑Fi 重连间隔 | 1 / 3 / 10 / 30 秒 | `pico/wifi.py` |
-| 农历本地表范围 | 1901–2100 | `pico/lunar_table.bin`（生成器 `tools/build_lunar_table.py`） |
+| UDP 广播端口 | `8765` | `pc_metrics/config.py`、`pico_freertos_firmware/src/network/udp_listener.c` |
+| 指标包上限 | `512` 字节 | `pc_metrics/protocol.py`、`pico_freertos_firmware/include/metrics_parser.h` |
+| 离线判定 | `3000` 毫秒 | `pico_freertos_firmware/src/state/system_state.c` |
+| UI 渲染周期 | `20` 毫秒 | `pico_freertos_firmware/src/display/ui_render.c` |
+| 看门狗超时 | `8000` 毫秒（RP2040 上限 8388） | `pico_freertos_firmware/include/supervisor.h`、`src/app/supervisor.c` |
+| 天气刷新 | 30 分钟 | `pico_freertos_firmware/src/services/weather_service.c` |
+| 天气失败退避 | 1 / 5 / 15 / 30 分钟 | `pico_freertos_firmware/src/services/weather_service.c` |
+| NTP 重校间隔 | 6 小时 | `pico_freertos_firmware/src/services/ntp_service.c` |
+| Wi‑Fi 重连间隔 | 1 / 3 / 10 / 30 秒 | `pico_freertos_firmware/src/network/wifi_manager.c` |
+| 农历本地表范围 | 1901–2100 | `pico_freertos_firmware/assets/lunar_table.bin`（生成器 `tools/build_lunar_table.py`） |
 
 > 以上常量以对应源文件为准；修改 Pico 端常量后需要重新部署固件。
 
@@ -283,29 +273,17 @@ pc_partner/
 │  ├─ broadcaster.py        # 子网广播地址计算与 UDP 发送
 │  ├─ protocol.py           # v1 JSON 指标包编解码与校验
 │  └─ host.py               # 主程序入口（python -m pc_metrics.host）
-├─ pico/                    # Pico W MicroPython 固件
-│  ├─ __init__.py           # 包标记
-│  ├─ main.py               # 设备启动入口（部署为 /main.py）
-│  ├─ app.py                # 主循环、模式切换与调度
-│  ├─ display.py            # M3 仪表盘/时钟布局与局部刷新
-│  ├─ st7735.py             # ST7735S SPI 驱动与字形绘制
-│  ├─ font_cn.py            # 中文字库索引（生成文件，勿手改）
-│  ├─ font_cn.bin           # 中文字库位图（放在 flash）
-│  ├─ glyph_font.py         # 从 flash 按需读取字形
-│  ├─ udp_receiver.py       # UDP 8765 接收与指标校验
-│  ├─ wifi.py               # Wi‑Fi 连接与重连状态机
-│  ├─ time_sync.py          # NTP 校时与时间格式化
-│  ├─ lunar.py              # 农历本地表查询与 HKO 在线复核
-│  ├─ lunar_table.bin       # HKO 农历本地表（1901–2100）
-│  ├─ weather.py            # 高德定位/天气后台线程
-│  ├─ amap_root_ca.pem      # 高德根证书
-│  ├─ hko_root_ca.pem       # HKO 根证书
-│  ├─ wifi_secrets.example.py
-│  └─ weather_secrets.example.py
+├─ pico/                    # 本地密钥配置（不纳入版本库）
+│  ├─ README.md             # 密钥文件创建说明
+│  ├─ wifi_secrets.py       # 本地忽略
+│  └─ weather_secrets.py    # 本地忽略
+├─ pico_freertos_firmware/  # Pico W C + FreeRTOS 固件（当前主路径）
+│  ├─ assets/               # 字模、农历表与两张根证书
+│  ├─ src/                  # 驱动、界面与网络服务
+│  └─ tests/                # 13 个宿主测试
 ├─ tools/
 │  ├─ start_metrics.ps1     # 启动主机指标服务
-│  ├─ deploy_pico.ps1       # 通过 mpremote 部署固件
-│  ├─ build_font.py         # 生成中文字库
+│  ├─ build_font.py         # 生成中文字库（C 资产；--output 兼容归档）
 │  └─ build_lunar_table.py  # 生成农历本地表
 ├─ tests/                   # Python unittest（主机与 Pico 逻辑）
 ├─ images/                  # README 界面预览图
@@ -316,7 +294,7 @@ pc_partner/
 └─ README.md
 ```
 
-`pico/wifi_secrets.py`、`pico/weather_secrets.py` 为本地配置，不纳入版本库；`docs/` 下的规格、计划与交接文档同样被 `.gitignore` 忽略。
+`pico/README.md` 说明两份本地密钥文件的创建方式；`pico/wifi_secrets.py`、`pico/weather_secrets.py` 不纳入版本库，`docs/` 下的规格、计划与交接文档同样被 `.gitignore` 忽略。MicroPython 源码与部署脚本只在 `archive/micropython` 分支。
 
 ## UDP 协议
 
@@ -352,12 +330,13 @@ pc_partner/
 ```powershell
 python -m pip install -r requirements-host.txt
 python -m unittest discover -s tests -v
-python -m compileall pc_metrics tests tools pico
+python -m pyflakes pc_metrics tools tests
+python -m compileall -q pc_metrics tests tools
 ```
 
-- 测试覆盖协议编解码、采集与广播地址、主机循环容错与重建、显示布局、应用主循环（秒对齐/重连/看门狗）、时钟/农历、天气后台线程、Wi‑Fi 状态机、启动入口与部署清单等；涉及真实硬件与网络的路径以实机验证为准。
-- 本轮验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 199 项全部通过（2026-11-06），`python -m pyflakes pico pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools pico` 无错误。历史 Windows + Python 3.11.9 的结果不代表本轮修复已在 Windows 上验证。
-- 主机侧与 Pico 逻辑用 mock/注入覆盖，不依赖真实网卡或串口；两个 PowerShell 脚本有静态一致性测试（`tests/test_deploy_manifest.py`）但未在 CI 中执行，改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次。仓库当前未配置 CI。
+- 当前主机侧测试覆盖协议编解码、采集与广播地址、主机循环容错与重建，以及 `tools/start_metrics.ps1` 的静态契约；C 固件的 13 个宿主测试用 `ctest` 单独运行，命令见 [`pico_freertos_firmware/README.md`](pico_freertos_firmware/README.md)。MicroPython 逻辑测试随归档版本保留在 `archive/micropython` 分支。
+- 本轮验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 92 项全部通过（2026-11-10 复核），`python -m pyflakes pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools` 均无错误。历史 Windows + Python 3.11.9 的结果不代表本轮修复已在 Windows 上验证。
+- 主机侧用 mock/注入覆盖，不依赖真实网卡或串口；`tests/test_start_metrics.py` 只读脚本做静态断言，未在 CI 中执行，改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次。仓库当前未配置 CI。
 - 重新生成字库（需 CJK TTF/OTF 与 ASCII 字体）：
 
   ```powershell
@@ -365,15 +344,17 @@ python -m compileall pc_metrics tests tools pico
   python tools/build_font.py --font <CJK字体路径> --ascii-font <ASCII字体路径>
   ```
 
+  默认只写 C 固件资产 `pico_freertos_firmware/assets/font_cn.bin`；`--output` 可选，仅用于归档分支的 MicroPython 模块兼容。
+
 - 重新生成农历表（需要能访问 HKO 数据）：
 
   ```powershell
   python tools/build_lunar_table.py
   ```
 
-`pico/font_cn.py` 与 `pico/font_cn.bin` 由 `tools/build_font.py` 生成，`pico/lunar_table.bin` 由 `tools/build_lunar_table.py` 生成，请勿手工修改。
+C 固件使用的 `pico_freertos_firmware/assets/font_cn.bin` 与 `pico_freertos_firmware/assets/lunar_table.bin` 由上述脚本生成，请勿手工修改。
 
-## 本轮真机验证（2026-11-06）
+## 归档版真机验证（2026-11-06，MicroPython）
 
 - 本机通过 mpremote 1.29.0 将固件部署到 Pico W（MicroPython 1.29.0），保留设备原有 Wi-Fi 配置，不读取其密码；天气 Key 单独更新，未纳入 Git。
 - 正常启动串口观察 65 秒，记录到 `Pico reset cause: 3`、`WX ok 14.0 阴` 与 `HKO err OSError`，窗口内未见再次启动日志。这只证明该观察窗口，不代表长时间稳定性通过。

@@ -1,4 +1,4 @@
-"""Run the Windows metrics collector and UDP broadcast loop."""
+"""Run the metrics collector and UDP broadcast loop on Windows or Linux."""
 
 from __future__ import annotations
 
@@ -114,7 +114,19 @@ def _get_ethernet_details(interface_name: str) -> tuple[str, str]:
 
 
 def _get_interface_default_gateway(interface_name: str) -> str | None:
-    """Read the selected adapter's IPv4 default gateway without using VPN routes."""
+    """Read the selected adapter's own IPv4 default gateway.
+
+    不同系统读取方式不同：Windows 通过 PowerShell 查询路由表，Linux 直接
+    解析 ``/proc/net/route``。两者都只取“这张网卡自己的”默认路由，避免
+    VPN 或虚拟网卡的默认路由把广播地址算到错误的子网里。
+    """
+    if sys.platform.startswith("win"):
+        return _windows_default_gateway(interface_name)
+    return _linux_default_gateway(interface_name)
+
+
+def _windows_default_gateway(interface_name: str) -> str | None:
+    """Read the adapter's IPv4 default gateway through PowerShell."""
     command = [
         "powershell.exe",
         "-NoProfile",
@@ -169,6 +181,73 @@ def _get_interface_default_gateway(interface_name: str) -> str | None:
             f"有线网卡“{interface_name}”存在多个相同优先级的 IPv4 默认网关"
         )
     return parsed_gateways[0]
+
+
+def _parse_linux_default_gateway(route_text: str, interface_name: str) -> str | None:
+    """Pick one interface's IPv4 default gateway out of /proc/net/route text.
+
+    ``/proc/net/route`` 每行有固定顺序的 11 列，前几列是：
+
+    - 第 0 列：网卡名；
+    - 第 1 列：目的网络，``00000000`` 表示默认路由（0.0.0.0/0）；
+    - 第 2 列：网关，十六进制且按小端字节序书写，例如 ``0102A8C0`` 是
+      192.168.2.1；
+    - 第 6 列：路由度量值，数值越小优先级越高。
+
+    同一张网卡可能有多条默认路由（例如同时存在有线与 VPN 备份路由），
+    这里取度量值最小的一条；若度量值并列而网关不同，说明无法唯一确定，
+    直接报错让使用者指定 ETHERNET_IPV4_ADDRESS，而不是猜一个。
+    """
+    best_metric = None
+    best_gateways: list[str] = []
+    for line in route_text.splitlines():
+        fields = line.split()
+        if len(fields) < 8:
+            continue
+        if fields[0] == "Iface":
+            # 表头行，跳过。
+            continue
+        if fields[0] != interface_name:
+            continue
+        if fields[1].strip("0") != "":
+            # 目的网络非全零说明不是默认路由。
+            continue
+        try:
+            metric = int(fields[6])
+            raw_gateway = int(fields[2], 16)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"/proc/net/route 中网卡“{interface_name}”的路由行无法解析：{line}"
+            ) from exc
+        gateway = str(ipaddress.IPv4Address(raw_gateway.to_bytes(4, "little")))
+        if best_metric is None or metric < best_metric:
+            best_metric = metric
+            best_gateways = [gateway]
+        elif metric == best_metric and gateway not in best_gateways:
+            best_gateways.append(gateway)
+    if not best_gateways:
+        return None
+    if len(best_gateways) > 1:
+        raise RuntimeError(
+            f"有线网卡“{interface_name}”存在多个相同优先级的 IPv4 默认网关："
+            f"{'、'.join(best_gateways)}"
+        )
+    return best_gateways[0]
+
+
+def _linux_default_gateway(
+    interface_name: str, route_path: str = "/proc/net/route"
+) -> str | None:
+    """Read the interface's IPv4 default gateway from the procfs routing table."""
+    try:
+        with open(route_path, encoding="utf-8") as handle:
+            route_text = handle.read()
+    except OSError as exc:
+        raise RuntimeError(
+            f"无法读取 {route_path}，因此无法确定有线网卡“{interface_name}”的"
+            "IPv4 默认网关"
+        ) from exc
+    return _parse_linux_default_gateway(route_text, interface_name)
 
 
 def _unique_by_broadcast(candidates):

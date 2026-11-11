@@ -382,9 +382,67 @@ class InterfaceCandidateTests(unittest.TestCase):
     def test_missing_powershell_is_reported_as_runtime_error(self):
         with patch.object(
             host.subprocess, "run", side_effect=FileNotFoundError("powershell.exe")
-        ), patch.object(config, "ETHERNET_IPV4_ADDRESS", ""):
+        ), patch.object(host.sys, "platform", "win32"), patch.object(
+            config, "ETHERNET_IPV4_ADDRESS", ""
+        ):
             with self.assertRaisesRegex(RuntimeError, "无法读取有线网卡"):
                 host._get_interface_default_gateway("以太网")
+
+    def test_linux_route_table_yields_the_default_gateway(self):
+        route = (
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\t"
+            "MTU\tWindow\tIRTT\n"
+            "eth0\t00000000\t0102A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n"
+            "eth0\t0002A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+            "wlan0\t00000000\t0101A8C0\t0003\t0\t0\t200\t00000000\t0\t0\t0\n"
+        )
+
+        self.assertEqual(
+            host._parse_linux_default_gateway(route, "eth0"), "192.168.2.1"
+        )
+
+    def test_linux_route_table_without_default_route_returns_none(self):
+        route = "eth0\t0002A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+
+        self.assertIsNone(host._parse_linux_default_gateway(route, "eth0"))
+
+    def test_linux_route_table_prefers_the_lowest_metric(self):
+        route = (
+            "eth0\t00000000\t0102A8C0\t0003\t0\t0\t500\t00000000\t0\t0\t0\n"
+            "eth0\t00000000\t0103A8C0\t0003\t0\t0\t50\t00000000\t0\t0\t0\n"
+        )
+
+        self.assertEqual(
+            host._parse_linux_default_gateway(route, "eth0"), "192.168.3.1"
+        )
+
+    def test_linux_route_table_rejects_tied_metrics(self):
+        route = (
+            "eth0\t00000000\t0102A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n"
+            "eth0\t00000000\t0103A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "多个相同优先级的 IPv4 默认网关"):
+            host._parse_linux_default_gateway(route, "eth0")
+
+    def test_linux_route_table_failure_is_reported(self):
+        with self.assertRaisesRegex(RuntimeError, "无法读取"):
+            host._linux_default_gateway(
+                "eth0", route_path="/definitely/missing/net/route"
+            )
+
+    def test_linux_platform_uses_the_procfs_route_table(self):
+        route = "eth0\t00000000\t0102A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n"
+        with patch.object(host.sys, "platform", "linux"), patch.object(
+            host, "_linux_default_gateway", return_value="192.168.2.1"
+        ) as linux_mock, patch.object(host, "_windows_default_gateway") as win_mock:
+            self.assertEqual(
+                host._get_interface_default_gateway("eth0"), "192.168.2.1"
+            )
+
+        linux_mock.assert_called_once_with("eth0")
+        win_mock.assert_not_called()
+        self.assertTrue(route)  # 保留样例，说明该路径读的是同一份路由表格式
 
 
 class InterfaceSelectionTests(unittest.TestCase):

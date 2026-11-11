@@ -1,0 +1,5 @@
+# 第三方代码与 FreeRTOS 配置契约，不参与格式化
+pico_freertos_firmware/tests/cjson/.*
+pico_freertos_firmware/include/FreeRTOSConfig.h
+.*/build.*/.*
+pico_freertos_firmware/tests/generated/.*
