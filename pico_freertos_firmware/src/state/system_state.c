@@ -73,6 +73,7 @@ void system_state_init(void) {
   STATE_LOCK();
   memset(&s_global_snapshot, 0, sizeof(s_global_snapshot));
   s_global_snapshot.ui_mode = kUiModeClock;
+  s_global_snapshot.theme_id = kThemeM3Dark;
   s_global_snapshot.pc_online = false;
   s_global_snapshot.wifi_connected = false;
   STATE_UNLOCK();
@@ -125,6 +126,14 @@ void system_state_update_weather(const WeatherData* weather) {
 void system_state_set_wifi_status(bool connected) {
   STATE_LOCK();
   s_global_snapshot.wifi_connected = connected;
+  STATE_UNLOCK();
+}
+
+void system_state_set_theme(UiThemeId theme_id) {
+  const UiThemeId clamped =
+      ((unsigned)theme_id < (unsigned)kThemeCount) ? theme_id : kThemeM3Dark;
+  STATE_LOCK();
+  s_global_snapshot.theme_id = clamped;
   STATE_UNLOCK();
 }
 

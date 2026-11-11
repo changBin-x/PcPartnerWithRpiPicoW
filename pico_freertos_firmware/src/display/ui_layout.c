@@ -44,6 +44,13 @@ int ui_layout_calculate_dirty_regions(const SystemSnapshot* prev,
     return count;
   }
 
+  /* 主题切换：全部颜色令牌同时变化，同样整屏重绘。 */
+  if (prev->theme_id != curr->theme_id) {
+    push_rect(out_rects, max_rects, &count, 0, 0, (int16_t)kUiScreenWidth,
+              (int16_t)kUiScreenHeight);
+    return count;
+  }
+
   switch (curr->ui_mode) {
     case kUiModeDashboard:
       if (prev->wifi_connected != curr->wifi_connected ||

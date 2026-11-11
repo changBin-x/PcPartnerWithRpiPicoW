@@ -7,29 +7,20 @@
 
 #include "asset_store.h"
 #include "font_engine.h"
+#include "render_window.h"
 #include "st7735s_driver.h"
 #include "firmware_checkin.h"
 #include "system_state.h"
 #include "ui_layout.h"
+#include "ui_theme.h"
 
 #ifdef PICO_ON_DEVICE
 #include "FreeRTOS.h"
 #include "task.h"
 #endif
 
-/* Material Design 3 深色主题令牌，与归档 MicroPython 版的取值一致。 */
-enum {
-  kColorBackground = 0x1083,
-  kColorSurface = 0x1904,
-  kColorSurfaceHigh = 0x2945,
-  kColorTrack = 0x31a7,
-  kColorText = 0xe71d,
-  kColorMuted = 0x9493,
-  kColorPrimary = 0xae3f,
-  kColorSecondary = 0xa699,
-  kColorTertiary = 0xf5f1,
-  kColorError = 0xf5d6,
-};
+/** @brief 本帧使用的调色板；每次绘制入口由 ui_theme_get() 赋值。 */
+static const UiThemePalette* s_palette;
 
 /* 与 ui_layout.c 的脏矩形坐标对齐的排版参数。 */
 enum {
@@ -204,28 +195,44 @@ static void format_rate(char* buffer, size_t size, float mbps) {
 
 static void render_top_bar(uint16_t* pixels, int origin_y,
                            const SystemSnapshot* snapshot) {
-  /* 与归档 MicroPython 版一致：只画两枚状态图标，用颜色区分在线与离线。
-   * 字库没有“在线/离线/无网”这些字，避免回退成占位方框。 */
+  /* 两枚状态图标之后补 HH:MM:SS；图标颜色区分在线与离线。字库缺少
+   * “在线/离线/无网”这些字，避免回退成占位方框。 */
   FontSurface surface = make_surface(pixels, origin_y);
-  const uint16_t pc_color = snapshot->pc_online ? kColorPrimary : kColorError;
+  const uint16_t pc_color =
+      snapshot->pc_online ? s_palette->primary : s_palette->error;
   font_engine_draw_glyph(&surface, kPcIconX, kTopBarIconY, kIconPc, kIconWidth,
-                         kIconHeight, pc_color, kColorBackground);
+                         kIconHeight, pc_color, s_palette->background);
   const uint16_t wifi_color =
-      snapshot->wifi_connected ? kColorPrimary : kColorError;
+      snapshot->wifi_connected ? s_palette->primary : s_palette->error;
   font_engine_draw_glyph(&surface, kWifiIconX, kTopBarIconY, kIconWifi,
-                         kIconWidth, kIconHeight, wifi_color, kColorBackground);
+                         kIconWidth, kIconHeight, wifi_color,
+                         s_palette->background);
+
+  /* 时刻用 8x14 ASCII 字模，8 个字符恰好占 64 像素，位于两枚图标之间。 */
+  const int kClockTextX = 32;
+  char text[9];
+  if (!snapshot->clock.time_synced) {
+    snprintf(text, sizeof(text), "--:--:--");
+    font_engine_draw_text(&surface, kClockTextX, kTopBarIconY, text,
+                          s_palette->muted, s_palette->background);
+    return;
+  }
+  snprintf(text, sizeof(text), "%02u:%02u:%02u", (unsigned)snapshot->clock.hour,
+           (unsigned)snapshot->clock.minute, (unsigned)snapshot->clock.second);
+  font_engine_draw_text(&surface, kClockTextX, kTopBarIconY, text,
+                        s_palette->text, s_palette->background);
 }
 
 static void render_metric_card(uint16_t* pixels, int origin_y, int card_y,
                                const char* label, float value, bool valid,
                                uint16_t accent) {
   draw_card(pixels, origin_y, kCardX, card_y, kCardWidth, kCardHeight,
-            kColorSurface);
+            s_palette->surface);
   fill_rect(pixels, origin_y, kCardX, card_y + 2, 2, kCardHeight - 4, accent);
 
   FontSurface surface = make_surface(pixels, origin_y);
   font_engine_draw_text(&surface, kCardLabelX, card_y + kCardLabelOffsetY,
-                        label, kColorMuted, kColorSurface);
+                        label, s_palette->muted, s_palette->surface);
 
   char value_text[16];
   int percent = 0;
@@ -237,11 +244,11 @@ static void render_metric_card(uint16_t* pixels, int origin_y, int card_y,
   }
   const int value_width = font_engine_text_width(value_text);
   font_engine_draw_text(&surface, kCardValueRight - value_width,
-                        card_y + kCardLabelOffsetY, value_text, kColorText,
-                        kColorSurface);
+                        card_y + kCardLabelOffsetY, value_text, s_palette->text,
+                        s_palette->surface);
 
   fill_rect(pixels, origin_y, kProgressX, card_y + kProgressYOffset,
-            kProgressWidth, kProgressHeight, kColorTrack);
+            kProgressWidth, kProgressHeight, s_palette->track);
   if (valid) {
     const int fill_width = (kProgressWidth * percent + 50) / 100;
     fill_rect(pixels, origin_y, kProgressX, card_y + kProgressYOffset,
@@ -253,9 +260,9 @@ static void render_network(uint16_t* pixels, int origin_y,
                            const SystemSnapshot* snapshot) {
   FontSurface surface = make_surface(pixels, origin_y);
   font_engine_draw_text(&surface, kNetworkLabelX, kNetworkRxY, "RX",
-                        kColorMuted, kColorBackground);
+                        s_palette->muted, s_palette->background);
   font_engine_draw_text(&surface, kNetworkLabelX, kNetworkTxY, "TX",
-                        kColorMuted, kColorBackground);
+                        s_palette->muted, s_palette->background);
 
   char value[32];
   if (snapshot->pc_online) {
@@ -264,7 +271,7 @@ static void render_network(uint16_t* pixels, int origin_y,
     snprintf(value, sizeof(value), "--");
   }
   font_engine_draw_text(&surface, kNetworkValueX, kNetworkRxY, value,
-                        kColorText, kColorBackground);
+                        s_palette->text, s_palette->background);
 
   if (snapshot->pc_online) {
     format_rate(value, sizeof(value), snapshot->metrics.tx_mbps);
@@ -272,18 +279,19 @@ static void render_network(uint16_t* pixels, int origin_y,
     snprintf(value, sizeof(value), "--");
   }
   font_engine_draw_text(&surface, kNetworkValueX, kNetworkTxY, value,
-                        kColorText, kColorBackground);
+                        s_palette->text, s_palette->background);
 }
 
 static void render_dashboard(uint16_t* pixels, int origin_y,
                              const SystemSnapshot* snapshot) {
   render_top_bar(pixels, origin_y, snapshot);
   render_metric_card(pixels, origin_y, kCardCpuY, "CPU", snapshot->metrics.cpu,
-                     true, kColorPrimary);
+                     true, s_palette->primary);
   render_metric_card(pixels, origin_y, kCardGpuY, "GPU", snapshot->metrics.gpu,
-                     snapshot->metrics.gpu_valid, kColorSecondary);
+                     snapshot->metrics.gpu_valid, s_palette->secondary);
   const int ram_percent = percent_from_float(snapshot->metrics.ram);
-  const uint16_t ram_accent = ram_percent > 90 ? kColorError : kColorTertiary;
+  const uint16_t ram_accent =
+      ram_percent > 90 ? s_palette->error : s_palette->tertiary;
   render_metric_card(pixels, origin_y, kCardRamY, "RAM", snapshot->metrics.ram,
                      true, ram_accent);
   render_network(pixels, origin_y, snapshot);
@@ -294,9 +302,10 @@ static void render_clock_header(uint16_t* pixels, int origin_y,
   /* 时钟页只画 WiFi 图标；仪表盘才同时画 PC 与 WiFi。 */
   FontSurface surface = make_surface(pixels, origin_y);
   const uint16_t wifi_color =
-      snapshot->wifi_connected ? kColorPrimary : kColorError;
+      snapshot->wifi_connected ? s_palette->primary : s_palette->error;
   font_engine_draw_glyph(&surface, kWifiIconX, kClockIconY, kIconWifi,
-                         kIconWidth, kIconHeight, wifi_color, kColorBackground);
+                         kIconWidth, kIconHeight, wifi_color,
+                         s_palette->background);
 }
 
 static void render_clock(uint16_t* pixels, int origin_y,
@@ -307,9 +316,9 @@ static void render_clock(uint16_t* pixels, int origin_y,
 
   /* 天气胶囊：与参考实现一致，位于顶栏图标下方。 */
   draw_card(pixels, origin_y, kWeatherCardX, kWeatherCardY, kWeatherCardWidth,
-            kWeatherCardHeight, kColorSurface);
+            kWeatherCardHeight, s_palette->surface);
   char weather_text[64];
-  uint16_t weather_color = kColorText;
+  uint16_t weather_color = s_palette->text;
   if (snapshot->weather.valid) {
     if (snapshot->weather.weather[0] != '\0') {
       snprintf(weather_text, sizeof(weather_text), "%s %d℃",
@@ -320,18 +329,18 @@ static void render_clock(uint16_t* pixels, int origin_y,
     }
   } else {
     snprintf(weather_text, sizeof(weather_text), "天气暂不可用");
-    weather_color = kColorMuted;
+    weather_color = s_palette->muted;
   }
   int weather_x = (kUiScreenWidth - font_engine_text_width(weather_text)) / 2;
   if (weather_x < 8) {
     weather_x = 8;
   }
   font_engine_draw_text(&surface, weather_x, kWeatherTextY, weather_text,
-                        weather_color, kColorSurface);
+                        weather_color, s_palette->surface);
 
   /* 大号时间卡片。 */
   draw_card(pixels, origin_y, kClockCardX, kClockCardY, kClockCardWidth,
-            kClockCardHeight, kColorSurface);
+            kClockCardHeight, s_palette->surface);
   if (snapshot->clock.time_synced) {
     char time_text[32];
     snprintf(time_text, sizeof(time_text), "%02d:%02d:%02d",
@@ -342,29 +351,29 @@ static void render_clock(uint16_t* pixels, int origin_y,
       time_x = 0;
     }
     font_engine_draw_clock_text(&surface, time_x, kClockTextY, time_text,
-                                kColorPrimary, kColorSurface);
+                                s_palette->primary, s_palette->surface);
   } else {
-    draw_centered_text(pixels, origin_y, 40, "--:--:--", kColorMuted,
-                       kColorSurface);
+    draw_centered_text(pixels, origin_y, 40, "--:--:--", s_palette->muted,
+                       s_palette->surface);
   }
 
   /* 复合日历大卡片：日期、星期胶囊、农历。 */
   draw_card(pixels, origin_y, kDateCardX, kDateCardY, kDateCardWidth,
-            kDateCardHeight, kColorSurface);
+            kDateCardHeight, s_palette->surface);
   if (snapshot->clock.time_synced) {
     char date_text[32];
     snprintf(date_text, sizeof(date_text), "%d月%02d日", snapshot->clock.month,
              snapshot->clock.day);
-    draw_centered_text(pixels, origin_y, kDateTextY, date_text, kColorText,
-                       kColorSurface);
+    draw_centered_text(pixels, origin_y, kDateTextY, date_text, s_palette->text,
+                       s_palette->surface);
 
     draw_card(pixels, origin_y, kWeekdayCardX, kWeekdayCardY, kWeekdayCardWidth,
-              kWeekdayCardHeight, kColorSurfaceHigh);
+              kWeekdayCardHeight, s_palette->surface_high);
     const int weekday = snapshot->clock.weekday;
     const char* weekday_name =
         (weekday >= 0 && weekday < 7) ? kWeekdayNames[weekday] : "周?";
     draw_centered_text(pixels, origin_y, kWeekdayTextY, weekday_name,
-                       kColorSecondary, kColorSurfaceHigh);
+                       s_palette->secondary, s_palette->surface_high);
 
     if (snapshot->lunar.valid && snapshot->lunar.gz_year[0] != '\0' &&
         snapshot->lunar.lunar_md[0] != '\0') {
@@ -372,20 +381,20 @@ static void render_clock(uint16_t* pixels, int origin_y,
       snprintf(lunar_text, sizeof(lunar_text), "%s %s", snapshot->lunar.gz_year,
                snapshot->lunar.lunar_md);
       draw_centered_text(pixels, origin_y, kLunarTextY, lunar_text,
-                         kColorTertiary, kColorSurface);
+                         s_palette->tertiary, s_palette->surface);
     }
   } else {
     draw_card(pixels, origin_y, kSyncCardX, kSyncCardY, kSyncCardWidth,
-              kSyncCardHeight, kColorSurfaceHigh);
+              kSyncCardHeight, s_palette->surface_high);
     draw_centered_text(pixels, origin_y, kSyncTextY, "时间同步中",
-                       kColorSecondary, kColorSurfaceHigh);
+                       s_palette->secondary, s_palette->surface_high);
   }
 }
 
 static void render_slice(uint16_t* pixels, int slice_y,
                          const SystemSnapshot* snapshot) {
   fill_rect(pixels, slice_y, 0, slice_y, kUiScreenWidth, kDisplaySliceRows,
-            kColorBackground);
+            s_palette->background);
   if (snapshot->ui_mode == kUiModeClock) {
     render_clock(pixels, slice_y, snapshot);
   } else {
@@ -405,9 +414,11 @@ bool ui_render_draw_dirty(DisplayBackend* backend,
       backend->end_frame == NULL) {
     return false;
   }
+  s_palette = ui_theme_get(snapshot->theme_id);
   if (!backend->begin_frame(backend)) {
     return false;
   }
+  render_window_enter();
 
   bool dirty_slices[kSliceCount] = {false};
   for (int index = 0; index < rect_count; ++index) {
@@ -446,6 +457,7 @@ bool ui_render_draw_dirty(DisplayBackend* backend,
     }
   }
   backend->end_frame(backend);
+  render_window_leave();
   return ok;
 }
 
@@ -471,6 +483,21 @@ int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
 
   int count = ui_layout_calculate_dirty_regions(previous, current, out_rects,
                                                 max_rects);
+  /* 整屏脏区已经覆盖所有内容，不必再补局部矩形。 */
+  if (count >= 1 && out_rects[0].x <= 0 && out_rects[0].y <= 0 &&
+      out_rects[0].x + out_rects[0].w >= kUiScreenWidth &&
+      out_rects[0].y + out_rects[0].h >= kUiScreenHeight) {
+    return count;
+  }
+
+  /* 仪表盘顶栏的 HH:MM:SS 不在 ui_layout 的契约里，秒或同步状态变化时
+   * 自行补一条（时钟页顶栏只画 WiFi 图标，无需此矩形）。 */
+  if (current->ui_mode == kUiModeDashboard &&
+      (previous->clock.second != current->clock.second ||
+       previous->clock.time_synced != current->clock.time_synced)) {
+    append_dirty_rect(out_rects, &count, max_rects, 32, 1, 64, 14);
+  }
+
   if (current->ui_mode == kUiModeClock &&
       previous->wifi_connected != current->wifi_connected) {
     /* 时钟页顶栏图标不在 ui_layout 的契约里，WiFi 变化时自行补一条。 */
@@ -502,6 +529,10 @@ int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
 
 bool ui_render_draw_frame(DisplayBackend* backend,
                           const SystemSnapshot* snapshot) {
+  if (snapshot == NULL) {
+    return false;
+  }
+  s_palette = ui_theme_get(snapshot->theme_id);
   const UiRect full_screen = {0, 0, kUiScreenWidth, kUiScreenHeight};
   return ui_render_draw_dirty(backend, snapshot, &full_screen, 1);
 }

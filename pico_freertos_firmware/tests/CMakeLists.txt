@@ -150,8 +150,10 @@ add_executable(test_font_engine
 add_executable(test_ui_render
     test_ui_render.c
     ../src/display/ui_render.c
+    ../src/display/ui_theme.c
     ../src/display/font_engine.c
     ../src/display/ui_layout.c
+    ../src/logic/render_window.c
     ../src/assets/asset_store.c
 )
 
@@ -167,8 +169,10 @@ add_executable(test_pipeline_e2e
     ../src/network/metrics_parser.c
     ../src/state/system_state.c
     ../src/display/ui_render.c
+    ../src/display/ui_theme.c
     ../src/display/font_engine.c
     ../src/display/ui_layout.c
+    ../src/logic/render_window.c
     ../src/assets/asset_store.c
 )
 
