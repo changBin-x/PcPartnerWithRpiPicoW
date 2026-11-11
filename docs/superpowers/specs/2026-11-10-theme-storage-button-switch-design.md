@@ -817,6 +817,9 @@ pico_freertos_firmware/
 │   ├── theme_switch.h         # 纯逻辑：主题推进与绕回
 │   ├── render_window.h        # 纯逻辑：渲染忙标志（零依赖，只含 stdbool）
 │   ├── ui_theme.h             # 调色板结构体 + ui_theme_get
+│   ├── ui_surface.h           # 绘图表面（像素指针 + 宽高 + origin_y）
+│   ├── ui_font.h              # 12 档点阵：初始化、测宽、绘制
+│   ├── ui_gfx.h               # 矩形/描边/虚线/圆角/网格/折线/斜切
 │   ├── theme_storage.h        # 提交/初始化接口 + 结果码
 │   ├── board_button.h         # GP15 采样
 │   ├── theme_commit_task.h    # 提交任务启动
@@ -826,8 +829,10 @@ pico_freertos_firmware/
 └── src/
     ├── main.c                 # 组合根：唯一知道「谁装谁」的地方
     ├── display/
-    │   ├── ui_theme.c         # 6 套常量表 + 越界回退
-    │   └── ui_render.c        # 只读快照，经 ui_theme_get 取色
+    │   ├── ui_theme.c         # 5 套常量表 + 越界回退
+    │   ├── ui_font.c          # FNT2 解析 + 4 bpp 混合
+    │   ├── ui_gfx.c           # 绘图原语（整数实现，不链浮点）
+    │   └── ui_render.c        # 10 屏绘制 + 切片/脏区调度
     ├── logic/
     │   ├── button_filter.c        # 仅 stdbool/stdint
     │   ├── theme_config.c         # 打包/解析 + 校验
