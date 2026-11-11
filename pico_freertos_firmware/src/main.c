@@ -20,11 +20,14 @@
 #include "pico/stdlib.h"
 
 #include "asset_store.h"
+#include "board_button.h"
 #include "firmware_checkin.h"
 #include "network_start.h"
 #include "supervisor.h"
 #include "supervisor_monitor.h"
 #include "system_state.h"
+#include "theme_commit_task.h"
+#include "theme_storage.h"
 #include "ui_render.h"
 
 /* 心跳任务参数。签到周期 1 秒，但日志每 30 秒才打一行——串口是给人看的，
@@ -177,6 +180,11 @@ int main(void) {
 
   system_state_init();
 
+  /* 主题先读回：读的是配置扇区前 12 字节，空白或校验失败都回退主题 0
+   * （M3 深色），所以首次上电看到的仍是既有外观。 */
+  system_state_set_theme(theme_storage_init());
+  board_button_init();
+
   /* 字模、农历表与根证书都以 const 数据的形式链接在 Flash 里，这里只登记
    * 指针；失败说明构建产物缺少资源段，属于不可恢复的构建错误。 */
   if (!asset_store_init()) {
@@ -191,8 +199,15 @@ int main(void) {
   start_heartbeat_task(&kCore0Heartbeat);
   start_heartbeat_task(&kCore1Heartbeat);
 
+  /* 提交任务创建在 supervisor_start() 之后：它的失败要 panic，而只有
+   * 监督任务已经在跑，panic 停住时才有看门狗兜底。 */
+  if (!theme_commit_task_start()) {
+    panic("主题提交任务创建失败");
+  }
+
   /* 显示与网络都只创建任务，初始化在各自任务内完成；显示侧不返回状态，
    * 任务内部的失败会自行打印并置为无输出，不影响 Core 0 的网络业务。 */
+  ui_render_set_input_source(&kBoardInput);
   if (!ui_render_start_task()) {
     /* 显示起不来时不要拖着监督任务一起复位：摘掉这个槽位，设备至少还能
      * 联网、还能把状态送到串口。 */

@@ -11,6 +11,8 @@
 #include "st7735s_driver.h"
 #include "firmware_checkin.h"
 #include "system_state.h"
+#include "theme_switch.h"
+#include "ui_input.h"
 #include "ui_layout.h"
 #include "ui_theme.h"
 
@@ -21,6 +23,9 @@
 
 /** @brief 本帧使用的调色板；每次绘制入口由 ui_theme_get() 赋值。 */
 static const UiThemePalette* s_palette;
+
+/* 按键输入源；为 NULL 时不处理按键（宿主测试与无按键板型）。 */
+static const UiInputSource* s_input_source;
 
 /* 与 ui_layout.c 的脏矩形坐标对齐的排版参数。 */
 enum {
@@ -527,6 +532,10 @@ int ui_render_collect_dirty_regions(const SystemSnapshot* previous,
   return count;
 }
 
+void ui_render_set_input_source(const UiInputSource* source) {
+  s_input_source = source;
+}
+
 bool ui_render_draw_frame(DisplayBackend* backend,
                           const SystemSnapshot* snapshot) {
   if (snapshot == NULL) {
@@ -566,6 +575,13 @@ static void vTaskUIRender(void* context) {
     system_state_check_timeouts((uint32_t)pdTICKS_TO_MS(xTaskGetTickCount()));
     SystemSnapshot current;
     system_state_get_snapshot(&current);
+    /* 按键与渲染共用 20 ms 节拍：消抖需要稳定采样周期，另起任务只会
+     * 让两边节拍打架。单击后立刻重取快照，本轮就把新主题画出来。 */
+    if (s_input_source != NULL && s_input_source->poll_click != NULL &&
+        s_input_source->poll_click()) {
+      system_state_set_theme(theme_switch_advance(current.theme_id, true));
+      system_state_get_snapshot(&current);
+    }
 #if defined(DIAGNOSTIC_TEST_PATTERN) && (DIAGNOSTIC_TEST_PATTERN == 1)
     ui_render_draw_frame(backend, &current);
 #else

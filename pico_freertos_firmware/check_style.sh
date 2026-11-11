@@ -39,6 +39,51 @@ collect_sources() {
     sort
 }
 
+# 依赖方向断言（规格 §6.2）。
+#
+# 三条断言都要求“目标文件里找不到匹配”，而 grep 的三种返回值含义不同：
+#   0 = 找到（违反约束）、1 = 没找到（通过）、2 = 路径不存在或不可读。
+# 只用 `! grep` 会把 2 当成通过，路径写错时静默放行，所以必须显式比较 rc。
+check_absent() {
+  local description="$1"
+  local pattern="$2"
+  shift 2
+  local rc=0
+  grep -rnE -- "${pattern}" "$@" >/dev/null 2>&1 || rc=$?
+  if [[ ${rc} -eq 0 ]]; then
+    echo "FAIL: ${description}" >&2
+    grep -rnE -- "${pattern}" "$@" >&2 || true
+    return 1
+  fi
+  if [[ ${rc} -ne 1 ]]; then
+    echo "FAIL: ${description}（路径不存在或不可读，rc=${rc}）" >&2
+    return 1
+  fi
+  return 0
+}
+
+# 路径以仓库根为 cwd，故必须带 ${REL_FIRMWARE}/ 前缀。
+check_layering() {
+  local failures=0
+  check_absent "display 层不得直接包含 pico-sdk 头文件" \
+    '#include *["<]pico/' \
+    "${REL_FIRMWARE}/src/display/ui_render.c" \
+    "${REL_FIRMWARE}/src/display/ui_theme.c" \
+    "${REL_FIRMWARE}/src/display/ui_layout.c" || failures=$((failures + 1))
+  check_absent "platform/app 不得反向依赖渲染层" \
+    '#include *["<](ui_render|ui_theme\.h|st7735s_driver)' \
+    "${REL_FIRMWARE}/src/platform" \
+    "${REL_FIRMWARE}/src/app" || failures=$((failures + 1))
+  check_absent "logic 层不得包含硬件或 SDK 头文件" \
+    '#include *["<](hardware/|pico/)' \
+    "${REL_FIRMWARE}/src/logic" || failures=$((failures + 1))
+  if [[ ${failures} -gt 0 ]]; then
+    echo "FAIL: 依赖方向检查未通过（${failures} 条）" >&2
+    return 1
+  fi
+  return 0
+}
+
 main() {
   local tool
   for tool in "${CLANG_FORMAT}" "${PYTHON}"; do
@@ -52,6 +97,11 @@ main() {
   if ! cd -- "${REPO_ROOT}"; then
     echo "错误：无法切换到仓库根目录：${REPO_ROOT}" >&2
     exit 2
+  fi
+
+  # 依赖方向先查：路径错了会在这里立刻炸出来，而不是等格式检查跑完。
+  if ! check_layering; then
+    exit 1
   fi
 
   local sources_output
