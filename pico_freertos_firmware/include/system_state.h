@@ -63,7 +63,7 @@ void system_state_update_clock(const ClockData* clock);
 void system_state_update_lunar(const LunarData* lunar);
 void system_state_update_weather(const WeatherData* weather);
 void system_state_set_wifi_status(bool connected);
-/** @brief 写入当前主题；越界值夹紧到 kThemeM3Dark，写入受锁保护。 */
+/** @brief 写入当前主题；越界值夹紧到 kThemeSwiss，写入受锁保护。 */
 void system_state_set_theme(UiThemeId theme_id);
 void system_state_check_timeouts(uint32_t current_tick);
 void system_state_get_snapshot(SystemSnapshot* out_snapshot);

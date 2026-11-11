@@ -4,19 +4,24 @@
 #include <stdio.h>
 #include <string.h>
 
-/* 中文字模表规格：14x14 像素、4bpp、98 字节/字形、341 个字形。 */
-#define kFontGlyphCount 341
-#define kFontBytesPerGlyph 98
+/* 新的多档字库（FNT2）头：magic/version/档位数/汉字数/四个偏移。 */
+#define kFontTierCount 12
+#define kFontHeaderBytes 24
 
 static void test_font_cn(void) {
   const AssetBlob* blob = asset_store_font_cn();
   assert(blob != NULL);
   assert(blob->data != NULL);
-  /* 尺寸必须正好是「字形数 x 每字形字节数」，多一个字节少一个字节都说明
-   * 引用的不是预期那份文件。 */
-  assert(blob->size == (size_t)(kFontGlyphCount * kFontBytesPerGlyph));
-  printf("PASS: 中文字模表 %zu 字节 = %d 字形 x %d 字节\n", blob->size,
-         kFontGlyphCount, kFontBytesPerGlyph);
+  assert(blob->size > kFontHeaderBytes);
+  /* magic 必须是 "FNT2"，且头部记录的 total 与实际长度一致，说明引用的是
+   * 预期的那份多档字库，而不是旧的单档表。 */
+  assert(memcmp(blob->data, "FNT2", 4) == 0);
+  assert(blob->data[4] == 1u);
+  assert(blob->data[5] == (unsigned char)kFontTierCount);
+  uint32_t total = 0;
+  memcpy(&total, blob->data + 20, sizeof(total));
+  assert(total == blob->size);
+  printf("PASS: 多档字库 %zu 字节，%d 档\n", blob->size, kFontTierCount);
 }
 
 static void test_lunar_table(void) {

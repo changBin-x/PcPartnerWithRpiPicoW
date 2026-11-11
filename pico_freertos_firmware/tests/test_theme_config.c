@@ -76,24 +76,24 @@ int main(void) {
 
   /* 正常路径：打包后必须能原样解析回来。 */
   fill_erased(page, sizeof(page));
-  theme_config_pack(kThemeCeladon, page, sizeof(page));
+  theme_config_pack(kThemeScope, page, sizeof(page));
   if (!theme_config_parse(page, sizeof(page), &parsed)) {
     printf("FAIL: 合法配置未被接受\n");
     return EXIT_FAILURE;
   }
-  if (parsed.theme_id != kThemeCeladon) {
+  if (parsed.theme_id != kThemeScope) {
     printf("FAIL: theme_id 解析错位（%u）\n", (unsigned)parsed.theme_id);
     return EXIT_FAILURE;
   }
 
   /* §5.2：12 字节布局、小端 "THME" 与校验和公式。 */
-  if (!layout_matches_spec(page, kThemeCeladon)) {
+  if (!layout_matches_spec(page, kThemeScope)) {
     printf("FAIL: 字节布局或校验和不符合 §5.2\n");
     return EXIT_FAILURE;
   }
 
   /* N-3 theme_id 越界。 */
-  theme_config_pack(kThemeCeladon, page, sizeof(page));
+  theme_config_pack(kThemeScope, page, sizeof(page));
   page[kThemeConfigThemeIdOffset] = 200;
   if (!expect_reject(page, sizeof(page))) {
     printf("FAIL: N-3 越界 theme_id 未被拒绝\n");
@@ -101,7 +101,7 @@ int main(void) {
   }
 
   /* N-3 隔离形态：越界 id 的校验和自洽，仍必须按范围拒绝。 */
-  theme_config_pack(kThemeCeladon, page, sizeof(page));
+  theme_config_pack(kThemeScope, page, sizeof(page));
   page[kThemeConfigThemeIdOffset] = 200;
   refresh_checksum(page);
   if (!expect_reject(page, sizeof(page))) {
@@ -110,7 +110,7 @@ int main(void) {
   }
 
   /* N-4 checksum 错 1 位。 */
-  theme_config_pack(kThemePhosphor, page, sizeof(page));
+  theme_config_pack(kThemeBento, page, sizeof(page));
   page[kThemeConfigChecksumOffset] ^= 0x01u;
   if (!expect_reject(page, sizeof(page))) {
     printf("FAIL: N-4 错误校验和未被拒绝\n");
@@ -118,7 +118,7 @@ int main(void) {
   }
 
   /* N-5 版本不符。 */
-  theme_config_pack(kThemeDeepTeal, page, sizeof(page));
+  theme_config_pack(kThemeHud, page, sizeof(page));
   page[kThemeConfigVersionOffset] = 2;
   if (!expect_reject(page, sizeof(page))) {
     printf("FAIL: N-5 版本不符未被拒绝\n");
@@ -126,7 +126,7 @@ int main(void) {
   }
 
   /* N-5 隔离形态：版本与校验和自洽，仍必须按版本拒绝。 */
-  theme_config_pack(kThemeDeepTeal, page, sizeof(page));
+  theme_config_pack(kThemeHud, page, sizeof(page));
   page[kThemeConfigVersionOffset] = 2;
   refresh_checksum(page);
   if (!expect_reject(page, sizeof(page))) {
@@ -135,7 +135,7 @@ int main(void) {
   }
 
   /* N-6 reserved 非零。 */
-  theme_config_pack(kThemeNeonMagenta, page, sizeof(page));
+  theme_config_pack(kThemeHud, page, sizeof(page));
   page[kThemeConfigReservedOffset] = 1;
   if (!expect_reject(page, sizeof(page))) {
     printf("FAIL: N-6 保留字段非零未被拒绝\n");
@@ -158,7 +158,7 @@ int main(void) {
   }
 
   /* 缓冲区不足时必须拒绝，而不是越界读。 */
-  theme_config_pack(kThemeMonoRed, page, sizeof(page));
+  theme_config_pack(kThemeTui, page, sizeof(page));
   if (!expect_reject(page, kThemeConfigSize - 1u)) {
     printf("FAIL: 短缓冲区未被拒绝\n");
     return EXIT_FAILURE;
@@ -166,22 +166,22 @@ int main(void) {
 
   /* 输出缓冲区不足一页时打包必须什么都不写。 */
   memset(page, 0x5A, sizeof(page));
-  theme_config_pack(kThemeCeladon, page, kThemeConfigPageSize - 1u);
+  theme_config_pack(kThemeScope, page, kThemeConfigPageSize - 1u);
   if (page[0] != 0x5Au || page[kThemeConfigPageSize - 1u] != 0x5Au) {
     printf("FAIL: 短输出缓冲区仍被写入\n");
     return EXIT_FAILURE;
   }
 
-  /* 越界入参按 kThemeM3Dark 落盘。 */
+  /* 越界入参按 kThemeSwiss 落盘。 */
   theme_config_pack((UiThemeId)200, page, sizeof(page));
   if (!theme_config_parse(page, sizeof(page), &parsed) ||
-      parsed.theme_id != kThemeM3Dark) {
-    printf("FAIL: 越界入参未回退 kThemeM3Dark\n");
+      parsed.theme_id != kThemeSwiss) {
+    printf("FAIL: 越界入参未回退 kThemeSwiss\n");
     return EXIT_FAILURE;
   }
 
   /* 打包必须把 12 字节之后的区域填 0xFF。 */
-  theme_config_pack(kThemeM3Dark, page, sizeof(page));
+  theme_config_pack(kThemeSwiss, page, sizeof(page));
   for (size_t i = kThemeConfigSize; i < sizeof(page); ++i) {
     if (page[i] != 0xFFu) {
       printf("FAIL: 页填充不是 0xFF（偏移 %zu）\n", i);

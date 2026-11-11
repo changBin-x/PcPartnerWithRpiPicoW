@@ -36,7 +36,7 @@ typedef struct {
 /**
  * @brief 把主题写成一页：前 12 字节是配置，其余全省 0xFF。
  *
- * @param theme_id 目标主题；越界时按 kThemeM3Dark 落盘。
+ * @param theme_id 目标主题；越界时按 kThemeSwiss 落盘。
  * @param page     输出缓冲区，长度至少 size。
  * @param size     缓冲区长度；小于 kThemeConfigPageSize 时直接返回。
  */

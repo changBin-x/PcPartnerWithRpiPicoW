@@ -1,59 +1,49 @@
+/**
+ * @file ui_theme.h
+ * @brief 五套主题的调色板，来源是设计稿
+ * `screen_designs_5styles_dual_pages.html` 里每个流派内联写死的十六进制颜色。
+ *
+ * 调色板只描述颜色，不含字号与版式；版式差异由 `ui_render.c` 按主题分别
+ * 绘制。颜色已换算成 RGB565。
+ */
+
 #ifndef PICO_FREERTOS_FIRMWARE_INCLUDE_UI_THEME_H_
 #define PICO_FREERTOS_FIRMWARE_INCLUDE_UI_THEME_H_
 
-#include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #include "ui_theme_id.h"
 
-/** @brief 一套主题的全部颜色令牌（RP2040 上 sizeof = 24 字节）。 */
+/** @brief 一套主题用到的全部颜色（RGB565）。 */
 typedef struct {
-  const char* name;      /**< 日志用名称，不上屏 */
-  uint16_t background;   /**< 屏幕背景画布 */
-  uint16_t surface;      /**< 卡片底色 */
-  uint16_t surface_high; /**< 胶囊/高亮容器底色 */
-  uint16_t track;        /**< 进度条槽底 */
-  uint16_t text;         /**< 主文字 */
-  uint16_t muted;        /**< 次要文字与标签 */
-  uint16_t primary;      /**< 主强调：CPU / 联机 / 时钟 */
-  uint16_t secondary;    /**< 次强调：GPU / 星期 / 同步 */
-  uint16_t tertiary;     /**< 第三强调：内存 / 农历 */
-  uint16_t error;        /**< 告警：断网 / 内存爆满 */
+  uint16_t bg;         /**< 页面底色 */
+  uint16_t fg;         /**< 主文字 */
+  uint16_t muted;      /**< 次要文字 */
+  uint16_t dim;        /**< 最弱文字/注释 */
+  uint16_t line;       /**< 分隔线与描边 */
+  uint16_t surface;    /**< 卡片、磁贴、输入框底色 */
+  uint16_t surface_hi; /**< 高一级的表面（反色标题、强调底） */
+  uint16_t accent;     /**< 主轴强调色 */
+  uint16_t accent_2;   /**< 次强调色 */
+  uint16_t warn;       /**< 警示色 */
+  uint16_t error;      /**< 错误/告警色 */
+  uint16_t grid;       /**< 网格与底纹 */
 } UiThemePalette;
 
-/** @brief 令牌枚举，供对比度规则表按名字取值。 */
-typedef enum {
-  kThemeTokenBackground = 0,
-  kThemeTokenSurface,
-  kThemeTokenSurfaceHigh,
-  kThemeTokenTrack,
-  kThemeTokenText,
-  kThemeTokenMuted,
-  kThemeTokenPrimary,
-  kThemeTokenSecondary,
-  kThemeTokenTertiary,
-  kThemeTokenError,
-  kThemeTokenCount
-} UiThemeToken;
+/**
+ * @brief 取主题调色板。
+ *
+ * @param theme 主题标识；越界时夹回 `kThemeSwiss`。
+ * @return 指向 Flash 常量的调色板，永不为 NULL。
+ */
+const UiThemePalette* ui_theme_get(UiThemeId theme);
 
-/** @brief 一条对比度门禁：前景令牌 vs 背景令牌。 */
-typedef struct {
-  const char* label;       /**< 断言失败时的可读名称 */
-  UiThemeToken foreground; /**< 前景令牌 */
-  UiThemeToken background; /**< 背景令牌 */
-  bool use_delta_l;        /**< false = WCAG CR，true = ΔL* */
-  float min_value;         /**< 阈值 */
-} ThemePairRule;
-
-/** @brief 规格 §3.4.1 的 17 项，定义在 ui_theme.c。 */
-extern const ThemePairRule kThemePairs[];
-extern const size_t kThemePairCount;
-
-/** @brief 按令牌取色值。 */
-uint16_t ui_theme_token(const UiThemePalette* palette, UiThemeToken token);
-
-/** @brief 取主题调色板；越界 id 回退 kThemeM3Dark，永不返回 NULL。 */
-const UiThemePalette* ui_theme_get(UiThemeId theme_id);
+/**
+ * @brief 取主题中文名（仅用于串口日志与调试，不经过字体引擎）。
+ *
+ * @param theme 主题标识；越界时返回第一个主题的名字。
+ * @return UTF-8 常量字符串。
+ */
+const char* ui_theme_name(UiThemeId theme);
 
 #endif /* PICO_FREERTOS_FIRMWARE_INCLUDE_UI_THEME_H_ */

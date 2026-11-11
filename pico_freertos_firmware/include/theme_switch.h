@@ -15,7 +15,7 @@
  *
  * @param current 当前主题。
  * @param clicked 本次消抖后是否判定为单击。
- * @return 下一套主题；入参越界时夹紧回 kThemeM3Dark。
+ * @return 下一套主题；入参越界时夹紧回 kThemeSwiss。
  */
 UiThemeId theme_switch_advance(UiThemeId current, bool clicked);
 

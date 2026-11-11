@@ -11,7 +11,7 @@ UiThemeId theme_switch_advance(UiThemeId current, bool clicked) {
   }
   const unsigned id = (unsigned)current;
   if (id >= (unsigned)kThemeCount) {
-    return kThemeM3Dark;
+    return kThemeSwiss;
   }
   return (UiThemeId)((id + 1u) % (unsigned)kThemeCount);
 }

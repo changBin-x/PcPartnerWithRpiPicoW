@@ -1,157 +1,109 @@
 /**
  * @file ui_theme.c
- * @brief 六套主题的静态调色板表、令牌取值器与对比度门禁配对。
- *
- * 色值逐字取自规格 §3.2；§3.4.1 的 17 项阈值由 kThemePairs 描述，
- * 宿主端测试 tests/test_ui_theme.c 逐主题复算 CR 与 ΔL*。
+ * @brief 五套主题调色板表；颜色逐项取自设计稿的内联样式。
  */
 
 #include "ui_theme.h"
 
-static const UiThemePalette s_themes[kThemeCount] = {
-    [kThemeM3Dark] =
-        {
-            .name = "M3 深色",
-            .background = 0x1083,
-            .surface = 0x1904,
-            .surface_high = 0x2945,
-            .track = 0x0020,
-            .text = 0xe71d,
-            .muted = 0x9493,
-            .primary = 0xae3f,
-            .secondary = 0xa699,
-            .tertiary = 0xFE00,
-            .error = 0xf5d6,
-        },
-    [kThemeMonoRed] =
-        {
-            .name = "黑琥珀",
-            .background = 0x0000,
-            .surface = 0x2124,
-            .surface_high = 0x39E7,
-            .track = 0x0000,
-            .text = 0xFFFF,
-            .muted = 0x9D13,
-            .primary = 0xFB40,
-            .secondary = 0x65B6,
-            .tertiary = 0xFE60,
-            .error = 0xF94A,
-        },
-    [kThemePhosphor] =
-        {
-            .name = "荧光绿",
-            .background = 0x0020,
-            .surface = 0x0982,
-            .surface_high = 0x1224,
-            .track = 0x0020,
-            .text = 0xD7FB,
-            .muted = 0x8611,
-            .primary = 0x07E0,
-            .secondary = 0x1F34,
-            .tertiary = 0xFD00,
-            .error = 0xF9A9,
-        },
-    [kThemeCeladon] =
-        {
-            .name = "霓虹青",
-            .background = 0x0861,
-            .surface = 0x2165,
-            .surface_high = 0x3208,
-            .track = 0x0861,
-            .text = 0xF7BF,
-            .muted = 0xA597,
-            .primary = 0x07F3,
-            .secondary = 0x5EBF,
-            .tertiary = 0xFE00,
-            .error = 0xF927,
-        },
-    [kThemeDeepTeal] =
-        {
-            .name = "深海青",
-            .background = 0x0862,
-            .surface = 0x19A7,
-            .surface_high = 0x2A2B,
-            .track = 0x0862,
-            .text = 0xF7BF,
-            .muted = 0x9DB9,
-            .primary = 0x07BA,
-            .secondary = 0x3DFF,
-            .tertiary = 0xFFE0,
-            .error = 0xFB90,
-        },
-    [kThemeNeonMagenta] =
-        {
-            .name = "霓虹洋红",
-            .background = 0x0022,
-            .surface = 0x2166,
-            .surface_high = 0x3209,
-            .track = 0x0022,
-            .text = 0xF7DF,
-            .muted = 0xAD3A,
-            .primary = 0xFA19,
-            .secondary = 0x07FF,
-            .tertiary = 0xFE60,
-            .error = 0xF94A,
-        },
+#include <stddef.h>
+
+/** @brief 主题总数必须与枚举一致。 */
+_Static_assert(kThemeCount == 5, "主题表长度与 kThemeCount 不一致");
+
+/** @brief 五套调色板，顺序与 UiThemeId 一致。 */
+static const UiThemePalette kThemes[kThemeCount] = {
+    /* 瑞士大字阶：纯黑底、青色数值、琥珀警示。 */
+    {
+        .bg = 0x0000,
+        .fg = 0xe73c,
+        .muted = 0x73ae,
+        .dim = 0x632c,
+        .line = 0x1082,
+        .surface = 0x0841,
+        .surface_hi = 0x18a3,
+        .accent = 0x07f9,
+        .accent_2 = 0xfd40,
+        .warn = 0xfd40,
+        .error = 0xf80a,
+        .grid = 0x18a3,
+    },
+    /* 复古字符终端：磷光绿、反色标题行。 */
+    {
+        .bg = 0x0060,
+        .fg = 0x07ec,
+        .muted = 0x064a,
+        .dim = 0x0223,
+        .line = 0x01a2,
+        .surface = 0x00a1,
+        .surface_hi = 0x07ec,
+        .accent = 0x8fe0,
+        .accent_2 = 0x07ec,
+        .warn = 0x8fe0,
+        .error = 0xf80a,
+        .grid = 0x0142,
+    },
+    /* 便当网格：深灰底、琥珀数字、薄荷与天蓝点缀。 */
+    {
+        .bg = 0x0862,
+        .fg = 0xef9e,
+        .muted = 0x8c51,
+        .dim = 0x632c,
+        .line = 0x2125,
+        .surface = 0x10a3,
+        .surface_hi = 0x2125,
+        .accent = 0xfd80,
+        .accent_2 = 0x0734,
+        .warn = 0xfd80,
+        .error = 0xf80a,
+        .grid = 0x2125,
+    },
+    /* 工业示波：深海军底、青色波形、琥珀刻度。 */
+    {
+        .bg = 0x0842,
+        .fg = 0xdf9e,
+        .muted = 0x7d38,
+        .dim = 0x4b91,
+        .line = 0x10e5,
+        .surface = 0x0883,
+        .surface_hi = 0x08a3,
+        .accent = 0x07f9,
+        .accent_2 = 0xfe40,
+        .warn = 0xfe40,
+        .error = 0xf80a,
+        .grid = 0x1105,
+    },
+    /* 战术机甲 HUD：近黑底、青主色、洋红告警。 */
+    {
+        .bg = 0x0021,
+        .fg = 0x077f,
+        .muted = 0x5392,
+        .dim = 0x322a,
+        .line = 0x1106,
+        .surface = 0x0842,
+        .surface_hi = 0x0862,
+        .accent = 0x077f,
+        .accent_2 = 0xf80a,
+        .warn = 0xf80a,
+        .error = 0xf80a,
+        .grid = 0x10c5,
+    },
 };
 
-const ThemePairRule kThemePairs[] = {
-    {"text/surface", kThemeTokenText, kThemeTokenSurface, false, 4.5f},
-    {"muted/surface", kThemeTokenMuted, kThemeTokenSurface, false, 4.5f},
-    {"text/background", kThemeTokenText, kThemeTokenBackground, false, 4.5f},
-    {"muted/background", kThemeTokenMuted, kThemeTokenBackground, false, 4.5f},
-    {"primary/surface", kThemeTokenPrimary, kThemeTokenSurface, false, 4.5f},
-    {"secondary/surface", kThemeTokenSecondary, kThemeTokenSurface, false,
-     4.5f},
-    {"secondary/surface_high", kThemeTokenSecondary, kThemeTokenSurfaceHigh,
-     false, 4.5f},
-    {"tertiary/surface", kThemeTokenTertiary, kThemeTokenSurface, false, 4.5f},
-    {"primary/track", kThemeTokenPrimary, kThemeTokenTrack, false, 3.0f},
-    {"secondary/track", kThemeTokenSecondary, kThemeTokenTrack, false, 3.0f},
-    {"tertiary/track", kThemeTokenTertiary, kThemeTokenTrack, false, 3.0f},
-    {"error/track", kThemeTokenError, kThemeTokenTrack, false, 3.0f},
-    {"error/surface", kThemeTokenError, kThemeTokenSurface, false, 3.0f},
-    {"primary/background", kThemeTokenPrimary, kThemeTokenBackground, false,
-     3.0f},
-    {"error/background", kThemeTokenError, kThemeTokenBackground, false, 3.0f},
-    {"dL(surface,background)", kThemeTokenSurface, kThemeTokenBackground, true,
-     10.0f},
-    {"dL(surface_high,surface)", kThemeTokenSurfaceHigh, kThemeTokenSurface,
-     true, 8.0f},
+/** @brief 主题中文名，仅用于日志。 */
+static const char* const kThemeNames[kThemeCount] = {
+    "瑞士大字阶", "复古终端", "便当网格", "工业示波", "战术机甲",
 };
 
-const size_t kThemePairCount = sizeof(kThemePairs) / sizeof(kThemePairs[0]);
-
-uint16_t ui_theme_token(const UiThemePalette* palette, UiThemeToken token) {
-  switch (token) {
-    case kThemeTokenBackground:
-      return palette->background;
-    case kThemeTokenSurface:
-      return palette->surface;
-    case kThemeTokenSurfaceHigh:
-      return palette->surface_high;
-    case kThemeTokenTrack:
-      return palette->track;
-    case kThemeTokenText:
-      return palette->text;
-    case kThemeTokenMuted:
-      return palette->muted;
-    case kThemeTokenPrimary:
-      return palette->primary;
-    case kThemeTokenSecondary:
-      return palette->secondary;
-    case kThemeTokenTertiary:
-      return palette->tertiary;
-    case kThemeTokenError:
-      return palette->error;
-    default:
-      return palette->background;
+const UiThemePalette* ui_theme_get(UiThemeId theme) {
+  if ((unsigned)theme >= (unsigned)kThemeCount) {
+    return &kThemes[kThemeSwiss];
   }
+  return &kThemes[theme];
 }
 
-const UiThemePalette* ui_theme_get(UiThemeId theme_id) {
-  if ((unsigned)theme_id >= (unsigned)kThemeCount) {
-    return &s_themes[kThemeM3Dark];
+const char* ui_theme_name(UiThemeId theme) {
+  if ((unsigned)theme >= (unsigned)kThemeCount) {
+    return kThemeNames[kThemeSwiss];
   }
-  return &s_themes[theme_id];
+  return kThemeNames[theme];
 }

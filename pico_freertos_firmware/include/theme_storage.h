@@ -22,7 +22,7 @@ typedef enum {
 /**
  * @brief 校验镜像边界并读出已保存主题。
  *
- * @return 有效主题 id；扇区空白、损坏或版本不符时返回 kThemeM3Dark。
+ * @return 有效主题 id；扇区空白、损坏或版本不符时返回 kThemeSwiss。
  */
 UiThemeId theme_storage_init(void);
 

@@ -101,7 +101,7 @@ UiThemeId theme_storage_init(void) {
          sizeof(page));
   ThemeConfig config = {0};
   if (!theme_config_parse(page, sizeof(page), &config)) {
-    return kThemeM3Dark;
+    return kThemeSwiss;
   }
   return config.theme_id;
 }
