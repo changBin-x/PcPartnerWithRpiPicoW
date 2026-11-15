@@ -14,18 +14,18 @@
 
 ![时钟模式：天气行、大号时间、日期/星期与农历日历卡片](images/clock.png)
 
-> 预览图于 2026-11-03 用 RTSP 相机拍摄设备屏幕后做透视校正（对应当日 M3 界面版本），亮度与颜色受拍摄环境影响，以实机显示为准；拍摄时天气行为缓存状态（带「旧」前缀，见「使用说明 · 天气行说明」）。
+> 预览图用 RTSP 相机拍摄设备屏幕后做透视校正，亮度与颜色受拍摄环境影响，以实机显示为准；拍摄时天气行为缓存状态（带「旧」前缀，见「使用说明 · 天气行说明」）。
 
 ## 项目简介
 
 这是一个「主机采集 + 单片机显示」的局域网小项目：
 
 - 主机端（`pc_metrics/`）用 Python 与 psutil 采集指标，稳态约每秒向所在子网的定向广播地址发送一个不超过 512 字节的 JSON 数据包（UDP 8765）。
-- Pico 端当前使用 C + FreeRTOS 固件（`pico_freertos_firmware/`）接收指标并驱动 TFT 屏幕；没有指标时显示时钟、农历和天气。`pico/` 只保留本地密钥配置（见 [`pico/README.md`](pico/README.md)）；MicroPython 实现已归档在 `archive/micropython` 分支与 `micropython-final` 标签。
+- Pico 端使用 C + FreeRTOS 固件（`pico_freertos_firmware/`）接收指标并驱动 TFT 屏幕；没有指标时显示时钟、农历和天气。`pico/` 只保留本地密钥配置（见 [`pico/README.md`](pico/README.md)）。
 - 主机端不开放任何 TCP/HTTP 端口，也不依赖云服务；数据只在本机所在广播域内传播。
-- 界面预览来自 2026-11-03 的 Pico W + ST7735S 实机（归档 MicroPython 版）。2026-11-06 的归档版本验证记录见文末；当前主机侧 92 项单元测试在 Linux + Python 3.12.3 上通过（2026-11-10 复核），C 固件另有 13 个宿主测试。修复后的 Windows 路径未实跑。
+- 界面预览来自 Pico W + ST7735S 实机。当前主机侧 92 项单元测试在 Linux + Python 3.12.3 上通过，C 固件另有 13 个宿主测试；Windows 路径未实跑。
 
-> **Pico 端当前实现是 C + FreeRTOS 固件**，位于 [`pico_freertos_firmware/`](pico_freertos_firmware/README.md)：协议与界面与归档的 MicroPython 版本对齐，只读资源已迁入该目录的 `assets/`；改用 pico-sdk + FreeRTOS SMP 双核（Core 0 跑网络、Core 1 独占刷屏），带硬件看门狗与串口诊断。ST7735S 驱动采用 10 MHz SPI 时钟并实现独立的 CS 周期同步控制，仓库记录显示，2026-11-08 已在真实 Pico W + ST7735S 上完成时钟模式与仪表盘模式的连续运行，并通过 RTSP 画面回传核验；该记录不等同于整机验收结论。详细说明见该目录的 README。
+> **Pico 端实现是 C + FreeRTOS 固件**，位于 [`pico_freertos_firmware/`](pico_freertos_firmware/README.md)：只读资源在 `assets/`；采用 pico-sdk + FreeRTOS SMP 双核（Core 0 跑网络、Core 1 独占刷屏），带硬件看门狗与串口诊断。ST7735S 驱动采用 10 MHz SPI 时钟并实现独立的 CS 周期同步控制，已在真实 Pico W + ST7735S 上完成时钟模式与仪表盘模式的连续运行，并通过 RTSP 画面回传核验；该记录不等同于整机验收结论。详细说明见该目录的 README。
 
 ## 功能特性
 
@@ -42,14 +42,14 @@
 
 - NTP 校时（`ntp.aliyun.com` 等阿里云 NTP 主机），按 UTC+8 显示；成功后每 6 小时重新校时，失败按 30 秒、1 分钟、5 分钟、15 分钟退避重试。
 - 大号时间（26 px 数字）、公历日期、星期。
-- 中文干支农历：优先使用随固件安装的香港天文台（HKO）1901–2100 年本地逐日表，表内日期无需联网；联网后由后台线程复核「当年及后两年」的 HKO 在线结果（单次 socket 操作超时 2 秒，不含 DNS，也不是整次请求的硬上限），与本地表不一致时仅记录差异，显示仍以本地表为准，复核失败不影响本地结果显示，按 1 分钟、5 分钟、30 分钟、6 小时退避重试。
+- 中文干支农历：优先使用随固件安装的香港天文台（HKO）1901–2100 年本地逐日表，表内日期无需联网；联网后由后台任务复核「当年及后两年」的 HKO 在线结果（单次 socket 操作超时 2 秒，不含 DNS，也不是整次请求的硬上限），与本地表不一致时仅记录差异，显示仍以本地表为准，复核失败不影响本地结果显示，按 1 分钟、5 分钟、30 分钟、6 小时退避重试。
 - 时间未同步时显示 `--:--:--` 与「时间同步中」占位，仪表盘则显示 `TIME SYNC`；时钟页不再单独显示 NTP 状态行，同步结果直接体现在时间是否可用。
 
 ### 在线天气
 
 - 高德 Web 服务 IP 定位 + 实况天气；可用六位 adcode 固定城市。
 - 天气行显示城市、天气现象与摄氏温度；`旧` 前缀表示当前展示的是断网或请求失败前的缓存数据。
-- 天气请求在后台线程执行，不阻塞绘屏与指标刷新；成功后每 30 分钟刷新，失败按 1、5、15、30 分钟退避。
+- 天气请求在后台任务执行，不阻塞绘屏与指标刷新；成功后每 30 分钟刷新，失败按 1、5、15、30 分钟退避。
 - TLS 校验证书链与主机名，使用随固件部署的高德根证书；不提供关闭校验的开关。
 
 ### 状态与容错
@@ -60,7 +60,7 @@
 - 主循环异常时显示 `APP ERROR` 错误页并在 2 秒后软重启；错误页复用已初始化的屏幕，不会重复初始化面板。异常文本不会写入串口（最多输出异常类型名），避免泄露可能包含的密钥。
 - 主循环每拍喂一次硬件看门狗（RP2040 上限 8388 ms，实际设为 8000 ms；端口不支持时降级为不启用并打印 `Pico WDT error`）；绘屏或网络路径卡死超过 8 秒时设备自动复位，串口会打印重启原因 `Pico reset cause: <code>`。
 - Wi‑Fi 断开后自动重连（重试间隔 1、3、10、30 秒）；重连成功后重建 UDP 监听套接字，避免旧 lwIP 套接字失效导致指标中断。
-- 天气请求与农历复核都在后台线程执行，并各自检查对方是否正忙来尽量避免同时握手，减小 RP2040 堆压力。
+- 天气请求与农历复核都在后台任务执行，并各自检查对方是否正忙来尽量避免同时握手，减小 RP2040 堆压力。
 
 ## 硬件连接
 
@@ -161,12 +161,7 @@ cd pico_freertos_firmware
 ```
 
 构建产物为 `build/pico_status_screen.uf2`。按住 BOOTSEL 上电，把 UF2 拖入 `RPI-RP2`
-磁盘即可。**烧录会覆盖设备上的 MicroPython 解释器**；需要回退时使用
-`archive/micropython` 分支与 `micropython-final` 标签中的归档说明。
-
-> **归档说明**：MicroPython 版本（含 `tools/deploy_pico.ps1`、17 项部署清单与
-> `pico/*.py`）只存在于 `archive/micropython` 分支；当前分支的 `pico/` 仅保留本地
-> 密钥文件，避免误把 Python 固件当成主路径。当前分支不再提供 `mpremote` 部署脚本。
+磁盘即可；烧录会覆盖设备上现有固件。
 
 ### 4. 上电自检
 
@@ -201,7 +196,7 @@ cd pico_freertos_firmware
 
 ### 串口日志
 
-使用任意 USB CDC 串口终端（如 PuTTY、`screen`、`minicom`）查看设备输出；C 固件不依赖 MicroPython 解释器。串口终端会占用设备端口，调试结束后关闭即可，不会中断固件运行。
+使用任意 USB CDC 串口终端（如 PuTTY、`screen`、`minicom`）查看设备输出。串口终端会占用设备端口，调试结束后关闭即可，不会中断固件运行。
 
 - `WX ok <温度> <天气>`：天气刷新成功。
 - `WX err <异常类型> [<errno>]`：天气刷新失败，只输出类型名与数字错误码（如存在），不输出 URL、Key 或响应体。
@@ -283,7 +278,7 @@ pc_partner/
 │  └─ tests/                # 13 个宿主测试
 ├─ tools/
 │  ├─ start_metrics.ps1     # 启动主机指标服务
-│  ├─ build_font.py         # 生成中文字库（C 资产；--output 兼容归档）
+│  ├─ build_font.py         # 生成中文字库（C 资产）
 │  └─ build_lunar_table.py  # 生成农历本地表
 ├─ tests/                   # Python unittest（主机与 Pico 逻辑）
 ├─ images/                  # README 界面预览图
@@ -294,7 +289,7 @@ pc_partner/
 └─ README.md
 ```
 
-`pico/README.md` 说明两份本地密钥文件的创建方式；`pico/wifi_secrets.py`、`pico/weather_secrets.py` 不纳入版本库，`docs/` 下的规格、计划与交接文档同样被 `.gitignore` 忽略。MicroPython 源码与部署脚本只在 `archive/micropython` 分支。
+`pico/README.md` 说明两份本地密钥文件的创建方式；`pico/wifi_secrets.py`、`pico/weather_secrets.py` 不纳入版本库，`docs/` 下的规格、计划与交接文档同样被 `.gitignore` 忽略。
 
 ## UDP 协议
 
@@ -334,8 +329,8 @@ python -m pyflakes pc_metrics tools tests
 python -m compileall -q pc_metrics tests tools
 ```
 
-- 当前主机侧测试覆盖协议编解码、采集与广播地址、主机循环容错与重建，以及 `tools/start_metrics.ps1` 的静态契约；C 固件的 13 个宿主测试用 `ctest` 单独运行，命令见 [`pico_freertos_firmware/README.md`](pico_freertos_firmware/README.md)。MicroPython 逻辑测试随归档版本保留在 `archive/micropython` 分支。
-- 本轮验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 92 项全部通过（2026-11-10 复核），`python -m pyflakes pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools` 均无错误。历史 Windows + Python 3.11.9 的结果不代表本轮修复已在 Windows 上验证。
+- 当前主机侧测试覆盖协议编解码、采集与广播地址、主机循环容错与重建，以及 `tools/start_metrics.ps1` 的静态契约；C 固件的 13 个宿主测试用 `ctest` 单独运行，命令见 [`pico_freertos_firmware/README.md`](pico_freertos_firmware/README.md)。
+- 验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 92 项全部通过，`python -m pyflakes pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools` 均无错误。Windows 路径未实跑。
 - 主机侧用 mock/注入覆盖，不依赖真实网卡或串口；`tests/test_start_metrics.py` 只读脚本做静态断言，未在 CI 中执行，改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次。仓库当前未配置 CI。
 - 重新生成字库（需 CJK TTF/OTF 与 ASCII 字体）：
 
@@ -344,7 +339,7 @@ python -m compileall -q pc_metrics tests tools
   python tools/build_font.py --font <CJK字体路径> --ascii-font <ASCII字体路径>
   ```
 
-  默认只写 C 固件资产 `pico_freertos_firmware/assets/font_cn.bin`；`--output` 可选，仅用于归档分支的 MicroPython 模块兼容。
+  默认只写 C 固件资产 `pico_freertos_firmware/assets/font_cn.bin`。
 
 - 重新生成农历表（需要能访问 HKO 数据）：
 
@@ -354,15 +349,6 @@ python -m compileall -q pc_metrics tests tools
 
 C 固件使用的 `pico_freertos_firmware/assets/font_cn.bin` 与 `pico_freertos_firmware/assets/lunar_table.bin` 由上述脚本生成，请勿手工修改。
 
-## 归档版真机验证（2026-11-06，MicroPython）
-
-- 本机通过 mpremote 1.29.0 将固件部署到 Pico W（MicroPython 1.29.0），保留设备原有 Wi-Fi 配置，不读取其密码；天气 Key 单独更新，未纳入 Git。
-- 正常启动串口观察 65 秒，记录到 `Pico reset cause: 3`、`WX ok 14.0 阴` 与 `HKO err OSError`，窗口内未见再次启动日志。这只证明该观察窗口，不代表长时间稳定性通过。
-- 主机 Linux 有线网卡以显式 IPv4 地址运行采集器，通过真实局域网 UDP 广播；带 `machine.WDT(timeout=8000)` 的设备端生产主循环诊断接受了 58 个指标包，并进入 `dashboard` 模式，同轮天气查询成功。该测试未故意停止喂狗，因此不代表看门狗超时复位已验证。
-- 诊断结束时显式调用 `machine.reset()`，USB 串口随后断开，设备未重新出现在主机 USB 列表。由于现场暂时不能拔插，原因尚未确定，最终自动启动、离线 3 秒切屏、断网重连与看门狗超时复位仍待真机验收；不能视为整机验收完成。
-- 另一次未传入看门狗的诊断曾出现 `WX err OSError 12` 后串口断开；后续正常启动与带看门狗诊断未再次出现该错误，其根因仍未确定，需恢复 USB 后进一步复测。
-- 真实 socket 的主机端集成验证覆盖稳态收包、模拟网卡异常后恢复，以及确定性载荷错误后继续运行；这不替代 Windows PowerShell 部署脚本和 Windows 网卡探测的实跑。
-
 ## 已知限制
 
 - 仅采集有线网卡速率；Wi‑Fi 网卡速率不参与显示。
@@ -371,11 +357,12 @@ C 固件使用的 `pico_freertos_firmware/assets/font_cn.bin` 与 `pico_freertos
 - 天气定位依赖大陆 IPv4 出口；可用 `CITY_OVERRIDE_ADCODE` 固定城市。
 - 农历本地表覆盖 1901–2100；HKO 在线 API 复核仅限其文档支持的「当年及后两年」，表外年份只使用本地表结果。
 - HKO 在线农历复核 API 的端到端可用性尚未完成验收：开发环境发现其中间 CA 已被撤销，而设备没有 CRL/OCSP 支持，且不允许关闭 TLS 校验；该路径失败时保留本地表结果并在串口输出 `HKO err`。
-- 天气与农历都在后台线程执行，连接与读写有超时，但 DNS 解析（`getaddrinfo`）本身没有代码级超时。极端情况下后台线程可能长时间不返回：主循环与显示不受影响，但该服务会一直保持 busy，直到复位后才会重新请求（期间显示最近一次结果或退避状态）。
+- 天气与农历都在后台任务执行，连接与读写有超时，但 DNS 解析（`getaddrinfo`）本身没有代码级超时。极端情况下后台任务可能长时间不返回：主循环与显示不受影响，但该服务会一直保持 busy，直到复位后才会重新请求（期间显示最近一次结果或退避状态）。
 - NTP 校时同样在主循环内做无超时的 DNS 解析。若解析挂起超过 8 秒，看门狗会复位设备（串口可见 `Pico reset cause`），随后按正常启动流程重试——表现为 DNS 异常时周期性重启，而不是永久定格。
 - 首次上电或断电后需要联网完成 NTP 校时，时间才可用。
 - 指标包为局域网明文广播，无认证/加密，不适用于不可信网络。
 - 天气 Key 会写入设备闪存，存在被设备持有者提取的风险；请使用独立 Key 并限制配额。
+- 整机验收尚未完成：长时间稳定性、看门狗超时复位、断电重启自动恢复仍需在真实设备上确认。
 
 ## 许可证
 

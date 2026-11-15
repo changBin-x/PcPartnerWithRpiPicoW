@@ -1,10 +1,7 @@
 # pico/ 本地密钥目录
 
 Pico 端当前使用 C + FreeRTOS 固件，源码位于 `pico_freertos_firmware/`。
-本目录不再包含 MicroPython 固件；MicroPython 实现已归档在
-`archive/micropython` 分支和 `micropython-final` 标签中。
-
-这里只保留构建前由 `tools/sync_secrets.py` 读取的两个本地配置文件：
+本目录只保留构建前由 `tools/sync_secrets.py` 读取的两个本地配置文件：
 
 ```python
 # pico/wifi_secrets.py
