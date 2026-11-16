@@ -1,10 +1,11 @@
 {
-  "activeTask": "编写双页面自动切换与防闪烁光栅化技术规范",
+  "activeTask": "AGENTS.md 定稿：删除「并推送」、§7 改为红/绿/蓝真实子代理审查",
   "status": "COMPLETED",
   "reason": "已采纳指标中断 3 秒自动切换与增量中文字库方案，完成 docs/page_switch_policy.md 规范落地。",
   "nextSteps": [
-    "执行 git commit",
-    "git push origin feature/pico-freertos-firmware"
+    "AGENTS.md 保持 197 行、0–12 章节不变，后续规则调整沿用同等密度",
+    "固件为 C + FreeRTOS（pico_freertos_firmware/），文档口径已同步，避免再出现 MicroPython 表述",
+    "整机验收仍未完成：长时间稳定性、看门狗复位、断电重启自动恢复待真机确认"
   ],
-  "updatedAt": "2026-11-10T16:05:00.000Z"
+  "updatedAt": "2026-11-15T12:14:44.123Z"
 }

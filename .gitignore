@@ -30,3 +30,9 @@ pico_freertos_firmware/include/firmware_secrets.h
 
 # 临时渲染与预览目录
 .tmp/
+pico_freertos_firmware/preview.ppm
+pico_freertos_firmware/tests/render_preview.c
+
+# 宿主构建目录
+pico_freertos_firmware/build-host/
+pico_freertos_firmware/tests/build-wsl
