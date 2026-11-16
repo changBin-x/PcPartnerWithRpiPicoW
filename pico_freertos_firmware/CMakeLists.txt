@@ -100,9 +100,9 @@ if (NOT EXISTS ${ASSET_DIR}/font_cn.bin)
 endif ()
 
 set(ASSET_OBJECTS "")
-find_program(PYTHON3_EXECUTABLE NAMES python3)
+find_program(PYTHON3_EXECUTABLE NAMES python3 python)
 if (NOT PYTHON3_EXECUTABLE)
-  message(FATAL_ERROR "需要 python3 为资源文件追加结尾 NUL 字节")
+  message(FATAL_ERROR "需要 python3 或 python 为资源文件追加结尾 NUL 字节")
 endif ()
 
 function(embed_asset asset_name)
@@ -115,6 +115,7 @@ function(embed_asset asset_name)
   # 缓冲区约定完全一致（size 不含该字节）。
   set(staged_dir ${CMAKE_CURRENT_BINARY_DIR}/assets_src)
   set(staged_file ${staged_dir}/${asset_name})
+  set(asm_file ${CMAKE_CURRENT_BINARY_DIR}/assets/${asset_name}.S)
   set(object_file ${CMAKE_CURRENT_BINARY_DIR}/assets/${asset_name}.o)
   # 暂存目录必须在配置期就存在：构建命令以它为工作目录，而 ninja 会在执行
   # 命令之前先 cd 进去，靠命令里的 make_directory 就太晚了。
@@ -124,12 +125,8 @@ function(embed_asset asset_name)
       COMMAND ${CMAKE_COMMAND} -E make_directory ${staged_dir}
                         ${CMAKE_CURRENT_BINARY_DIR}/assets
       COMMAND ${PYTHON3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/../tools/pad_asset_nul.py
-              ${asset_file} ${staged_file}
-      # 符号名由输入文件名派生，因此必须在暂存目录里以纯文件名调用 objcopy，
-      # 否则符号会变成 _binary__home_bean_..._start 这种不可用的名字。
-      COMMAND ${CMAKE_OBJCOPY} -I binary -O elf32-littlearm -B arm
-              --rename-section .data=.rodata,alloc,load,readonly,data,contents
-              ${asset_name} ${object_file}
+              ${asset_file} ${staged_file} ${asm_file}
+      COMMAND ${CMAKE_C_COMPILER} -c -mcpu=cortex-m0plus -mthumb ${asm_file} -o ${object_file}
       WORKING_DIRECTORY ${staged_dir}
       DEPENDS ${asset_file}
               ${CMAKE_CURRENT_LIST_DIR}/../tools/pad_asset_nul.py
