@@ -11,12 +11,17 @@
 
 #include "system_state.h"
 
-/* 默认城市 adcode。pico/weather.py 本身不硬编码城市，仓库文档里的示例
- * 是宁波（330200），因此这里以宁波作为无覆盖配置时的默认值。 */
-#define kWeatherDefaultAdcode "330200"
+/* 默认城市 adcode：北京市朝阳区（110105）。 */
+#define kWeatherDefaultAdcode "110105"
 
 /* 启动天气任务。未配置高德 Key 时会打印提示并让任务自行退出。 */
 bool weather_service_start(void);
+
+/* 解析高德 IP 定位 JSON（纯函数，便于测试）。
+ *
+ * 成功提取 6 位数字 adcode 时返回 true 并写入 out_adcode；失败返回 false。 */
+bool weather_service_parse_ip_json(const char* json, char* out_adcode,
+                                   size_t adcode_size);
 
 /* 解析高德实况天气 JSON（纯函数，便于宿主测试）。
  *

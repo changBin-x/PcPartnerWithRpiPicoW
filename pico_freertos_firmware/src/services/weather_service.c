@@ -228,6 +228,17 @@ static void weather_copy_trimmed(char* destination, size_t capacity,
   size_t length = (size_t)(end - source);
   if (length >= capacity) {
     length = capacity - 1;
+    /* UTF-8 边界安全截断：避免多字节序列被截断产生非法编码 */
+    while (length > 0 && ((unsigned char)source[length] & 0xC0u) == 0x80u) {
+      --length;
+    }
+    if (length > 0 && ((unsigned char)source[length - 1] & 0x80u) != 0u) {
+      unsigned char lead = (unsigned char)source[length - 1];
+      int need = (lead >= 0xF0u) ? 4 : (lead >= 0xE0u) ? 3 : (lead >= 0xC0u) ? 2 : 1;
+      if (need > 1) {
+        --length;
+      }
+    }
   }
   memcpy(destination, source, length);
   destination[length] = '\0';
@@ -329,6 +340,45 @@ bool weather_service_parse_json(const char* json, WeatherData* out) {
   return ok;
 }
 
+bool weather_service_parse_ip_json(const char* json, char* out_adcode,
+                                   size_t adcode_size) {
+  if (json == NULL || out_adcode == NULL || adcode_size < 7) {
+    return false;
+  }
+
+  cJSON* root = cJSON_ParseWithOpts(json, NULL, 1);
+  if (root == NULL) {
+    return false;
+  }
+
+  bool ok = false;
+  const cJSON* status = cJSON_GetObjectItemCaseSensitive(root, "status");
+  const cJSON* adcode = cJSON_GetObjectItemCaseSensitive(root, "adcode");
+
+  if (cJSON_IsString(status) && status->valuestring != NULL &&
+      strcmp(status->valuestring, "1") == 0 &&
+      cJSON_IsString(adcode) && adcode->valuestring != NULL) {
+    size_t len = strlen(adcode->valuestring);
+    if (len == 6 && strcmp(adcode->valuestring, "[]") != 0) {
+      bool all_digits = true;
+      for (size_t i = 0; i < 6; ++i) {
+        if (adcode->valuestring[i] < '0' || adcode->valuestring[i] > '9') {
+          all_digits = false;
+          break;
+        }
+      }
+      if (all_digits) {
+        memcpy(out_adcode, adcode->valuestring, 6);
+        out_adcode[6] = '\0';
+        ok = true;
+      }
+    }
+  }
+
+  cJSON_Delete(root);
+  return ok;
+}
+
 /* ------------------------------------------------------------------ */
 /* 设备端：raw TCP + mbedTLS                                         */
 /* ------------------------------------------------------------------ */
@@ -401,6 +451,10 @@ static char s_request[kWeatherRequestBytes];
 static char s_response[kWeatherResponseBytes];
 static WeatherData s_last_weather;
 static bool s_has_last_weather = false;
+static char s_dynamic_adcode[8] = {0};
+static bool s_ip_loc_done = false;
+static int s_ip_loc_attempts = 0;
+static bool s_last_wifi_ready = false;
 
 static void weather_log_error(const char* stage, int error) {
   char text[128];
@@ -540,12 +594,17 @@ static bool weather_resolve(void) {
 }
 
 static void weather_tcp_close(void) {
-  /* 读取 pcb、清空字段和关闭必须在同一把核心锁内完成，否则 tcpip
-   * 线程的 error 回调可能先把 pcb 释放掉，留下悬空指针。 */
+  /* 读取 pcb、解绑所有回调、清空字段和关闭必须在同一把核心锁内完成，
+   * 避免后续异步 RST/error 回调使用已失效的全局上下文。 */
   LOCK_TCPIP_CORE();
   struct tcp_pcb* pcb = s_conn.pcb;
   s_conn.pcb = NULL;
   if (pcb != NULL) {
+    tcp_arg(pcb, NULL);
+    tcp_err(pcb, NULL);
+    tcp_recv(pcb, NULL);
+    tcp_poll(pcb, NULL, 0);
+    tcp_sent(pcb, NULL);
     if (tcp_close(pcb) != ERR_OK) {
       tcp_abort(pcb);
     }
@@ -767,6 +826,13 @@ static bool weather_tls_init(void) {
 }
 
 static bool weather_send_request(void) {
+  const char* adcode = kWeatherDefaultAdcode;
+  if (kFirmwareWeatherAdcode[0] != '\0') {
+    adcode = kFirmwareWeatherAdcode;
+  } else if (s_dynamic_adcode[0] != '\0') {
+    adcode = s_dynamic_adcode;
+  }
+
   int length =
       snprintf(s_request, sizeof(s_request),
                "GET /v3/weather/weatherInfo?key=%s&city=%s&extensions=base"
@@ -779,9 +845,7 @@ static bool weather_send_request(void) {
                "Connection: close\r\n"
                "\r\n",
                s_weather_key,
-               /* CITY_OVERRIDE_ADCODE 配置过就听用户的，否则用内置默认城市。 */
-               kFirmwareWeatherAdcode[0] != '\0' ? kFirmwareWeatherAdcode
-                                                 : kWeatherDefaultAdcode);
+               adcode);
   if (length <= 0 || (size_t)length >= sizeof(s_request)) {
     weather_log_error("构造请求", -1);
     return false;
@@ -833,6 +897,86 @@ static bool weather_read_response(size_t* out_length) {
   return true;
 }
 
+static bool weather_send_ip_request(void) {
+  int length =
+      snprintf(s_request, sizeof(s_request),
+               "GET /v3/ip?key=%s HTTP/1.1\r\n"
+               "Host: " kWeatherHost
+               "\r\n"
+               "User-Agent: Pico-W-Weather/1.0\r\n"
+               "Accept: application/json\r\n"
+               "Accept-Encoding: identity\r\n"
+               "Connection: close\r\n"
+               "\r\n",
+               s_weather_key);
+  if (length <= 0 || (size_t)length >= sizeof(s_request)) {
+    weather_log_error("构造IP定位请求", -1);
+    return false;
+  }
+
+  size_t sent = 0;
+  while (sent < (size_t)length) {
+    int count = mbedtls_ssl_write(
+        &s_ssl, (const unsigned char*)s_request + sent, (size_t)length - sent);
+    if (count <= 0) {
+      weather_log_error("发送 IP 定位请求", count);
+      return false;
+    }
+    sent += (size_t)count;
+  }
+  return true;
+}
+
+static bool weather_fetch_ip_location(void) {
+  int error = mbedtls_ssl_session_reset(&s_ssl);
+  if (error != 0) {
+    weather_log_error("重置 IP 定位 TLS 会话", error);
+    return false;
+  }
+  mbedtls_ssl_set_bio(&s_ssl, &s_conn, weather_tls_send, NULL,
+                      weather_tls_recv);
+
+  if (!weather_tcp_open()) {
+    return false;
+  }
+
+  error = mbedtls_ssl_handshake(&s_ssl);
+  if (error != 0) {
+    weather_log_error("IP 定位 TLS 握手", error);
+    weather_tcp_close();
+    return false;
+  }
+  FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
+
+  if (!weather_send_ip_request()) {
+    weather_tcp_close();
+    return false;
+  }
+
+  size_t length = 0;
+  if (!weather_read_response(&length)) {
+    weather_tcp_close();
+    return false;
+  }
+  weather_tcp_close();
+  FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
+
+  size_t body_length = 0;
+  char* body = (char*)weather_service_http_body(s_response, length, &body_length);
+  if (body == NULL || body_length == 0) {
+    return false;
+  }
+  body[body_length] = '\0';
+
+  char adcode[8] = {0};
+  if (weather_service_parse_ip_json(body, adcode, sizeof(adcode))) {
+    memcpy(s_dynamic_adcode, adcode, sizeof(s_dynamic_adcode));
+    printf("高德 IP 定位成功：adcode = %s\n", s_dynamic_adcode);
+    return true;
+  }
+  return false;
+}
+
 static void weather_mark_stale(void) {
   WeatherData stale;
   if (s_has_last_weather) {
@@ -871,6 +1015,7 @@ static int weather_fetch_once(void) {
     weather_tcp_close();
     return -1;
   }
+  FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
 
   if (!weather_send_request()) {
     weather_tcp_close();
@@ -882,9 +1027,10 @@ static int weather_fetch_once(void) {
     weather_tcp_close();
     return -1;
   }
+  weather_tcp_close();
+  FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
   if (response_length == 0) {
     weather_log_error("读取 HTTPS 响应", -1);
-    weather_tcp_close();
     return -1;
   }
 
@@ -968,17 +1114,38 @@ static void weather_task(void* argument) {
 
   for (;;) {
     FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
-    if (!wifi_manager_is_network_ready() || !mbedtls_time_source_is_valid()) {
+    bool net_ready = wifi_manager_is_network_ready();
+    if (!net_ready || !mbedtls_time_source_is_valid()) {
+      s_last_wifi_ready = false;
       vTaskDelay(pdMS_TO_TICKS(5000));
       continue;
     }
 
     TickType_t now = xTaskGetTickCount();
+
+    /* 新的 Wi-Fi 连接建立：重置 IP 定位尝试以支持漫游重定，但保留 LKG 有效定位 */
+    if (!s_last_wifi_ready) {
+      s_last_wifi_ready = true;
+      s_ip_loc_done = false;
+      s_ip_loc_attempts = 0;
+      next_attempt = now;
+    }
+
     if ((int32_t)(now - next_attempt) < 0) {
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
 
+    /* 若未静态覆盖城市，优先尝试通过当前 Wi-Fi 公网 IP 进行高德自动定位（上限 3 次） */
+    if (kFirmwareWeatherAdcode[0] == '\0' && !s_ip_loc_done && s_ip_loc_attempts < 3) {
+      FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
+      ++s_ip_loc_attempts;
+      if (weather_fetch_ip_location()) {
+        s_ip_loc_done = true;
+      }
+    }
+
+    FIRMWARE_CHECK_IN(kSupervisorSlotWeather);
     int result = weather_fetch_once();
     TickType_t finished = xTaskGetTickCount();
     printf("天气刷新后剩余堆：%u 字节。\n", (unsigned)xPortGetFreeHeapSize());
