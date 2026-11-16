@@ -88,12 +88,21 @@ static void text_fit(const UiSurface* surface, int x, int y, int px, int right,
   size_t i = 0;
   while (str[i] != '\0') {
     int bytes = utf8_bytes((unsigned char)str[i]);
-    char one[8] = {0};
-    if (used + (size_t)bytes >= sizeof clipped) {
+    if (bytes <= 0) {
       break;
     }
-    for (int k = 0; k < bytes; ++k) {
-      one[k] = str[i + (size_t)k];
+    int actual = 0;
+    char one[8] = {0};
+    while (actual < bytes && str[i + (size_t)actual] != '\0') {
+      one[actual] = str[i + (size_t)actual];
+      ++actual;
+    }
+    if (actual < bytes) {
+      /* 截断在多字节字符中间，防御性停止避免越界读取 */
+      break;
+    }
+    if (used + (size_t)bytes >= sizeof clipped) {
+      break;
     }
     int advance = ui_font_width(px, one);
     if (x + width + advance > right) {
@@ -134,15 +143,6 @@ static void format_clock(const ClockData* clock, char* out, size_t size,
              clock->second);
   } else {
     snprintf(out, size, "%02d:%02d", clock->hour, clock->minute);
-  }
-}
-
-/** @brief 把秒格式化成 "SS 秒"。 */
-static void format_seconds(const ClockData* clock, char* out, size_t size) {
-  if (!clock->time_synced) {
-    snprintf(out, size, "-- 秒");
-  } else {
-    snprintf(out, size, "%02d 秒", clock->second);
   }
 }
 
@@ -205,13 +205,22 @@ static void format_percent1(float value, bool valid, char* out, size_t size) {
   snprintf(out, size, "%d.%d", (int)value, (int)((value - (int)value) * 10));
 }
 
-/** @brief 网速，形如 "1.2 兆/秒"。 */
+/** @brief 网速，形如 "1.2兆/秒"；两列并排的窄行要求不带空格。 */
 static void format_rate(float mbps, bool valid, char* out, size_t size) {
   if (!valid) {
-    snprintf(out, size, "-- 兆/秒");
+    snprintf(out, size, "--兆/秒");
     return;
   }
-  snprintf(out, size, "%d.%d 兆/秒", (int)mbps, (int)((mbps - (int)mbps) * 10));
+  int whole = (int)mbps;
+  if (whole > 999) {
+    whole = 999; /* 物理上不可能，但对抗性数据不能让两列叠字。 */
+  }
+  if (whole >= 10) {
+    /* 两位以上不再带小数：两列 16 px 前缀 + 24 px 单位，窄行只放得下 50 px。 */
+    snprintf(out, size, "%d兆/秒", whole);
+    return;
+  }
+  snprintf(out, size, "%d.%d兆/秒", whole, (int)((mbps - whole) * 10));
 }
 
 /* ------------------------------------------------------- 流派一：瑞士大字阶 */
@@ -222,13 +231,13 @@ static void swiss_top(const UiSurface* s, const SystemSnapshot* snap,
   char buf[16];
   if (snap->pc_online) {
     dot(s, 4, 4, 5, p->accent);
-    text_at(s, 11, 2, 7, p->muted, p->bg, "主机联机");
+    text_at(s, 11, 1, 8, p->muted, p->bg, "主机联机");
   } else {
     ring(s, 4, 4, 5, p->dim, p->bg);
-    text_at(s, 11, 2, 7, p->dim, p->bg, "主机离线");
+    text_at(s, 11, 1, 8, p->dim, p->bg, "主机未连");
   }
   format_clock(&snap->clock, buf, sizeof buf, true);
-  text_right(s, 124, 2, 7, p->muted, p->bg, buf);
+  text_right(s, 124, 1, 8, p->muted, p->bg, buf);
   gfx_fill(s, 0, 13, kUiScreenWidth, 1, p->line);
 }
 
@@ -239,10 +248,10 @@ static void swiss_item(const UiSurface* s, int y, const char* label,
   const char* tag = active ? "[正常]" : "[待机]";
   uint16_t tag_bg = active ? p->surface_hi : p->surface;
   uint16_t tag_fg = active ? p->accent : p->dim;
-  int tag_w = ui_font_width(6, tag);
+  int tag_w = ui_font_width(8, tag);
   text_at(s, 6, y + 2, 8, p->muted, p->bg, label);
-  gfx_fill(s, 122 - tag_w - 6, y + 1, tag_w + 6, 10, tag_bg);
-  text_at(s, 122 - tag_w - 3, y + 2, 6, tag_fg, tag_bg, tag);
+  gfx_fill(s, 122 - tag_w - 6, y + 1, tag_w + 6, 11, tag_bg);
+  text_at(s, 122 - tag_w - 3, y + 2, 8, tag_fg, tag_bg, tag);
   format_percent(value, active, buf, sizeof buf);
   text_at(s, 6, y + 9, 24, active ? p->accent : p->dim, p->bg, buf);
   text_at(s, 6 + ui_font_width(24, buf) + 2, y + 25, 9, p->muted, p->bg, "%");
@@ -258,16 +267,16 @@ static void swiss_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   swiss_top(s, snap, p);
   bool online = snap->pc_online;
-  swiss_item(s, 14, "CPU 处理器", snap->metrics.cpu, online, p);
-  swiss_item(s, 57, "GPU 显卡", snap->metrics.gpu,
+  swiss_item(s, 14, "CPU: R5 5600G", snap->metrics.cpu, online, p);
+  swiss_item(s, 57, "GPU: RTX 3060", snap->metrics.gpu,
              online && snap->metrics.gpu_valid, p);
-  swiss_item(s, 100, "系统内存", snap->metrics.ram, online, p);
+  swiss_item(s, 100, "系统内存: 32G", snap->metrics.ram, online, p);
   format_rate(snap->metrics.rx_mbps, online, rx, sizeof rx);
   format_rate(snap->metrics.tx_mbps, online, tx, sizeof tx);
-  snprintf(buf, sizeof buf, "下行: %s", rx);
-  text_at(s, 4, 145, 7, p->muted, p->bg, buf);
-  snprintf(buf, sizeof buf, "上行: %s", tx);
-  text_right(s, 124, 145, 7, p->muted, p->bg, buf);
+  snprintf(buf, sizeof buf, "下行%s", rx);
+  text_at(s, 4, 144, 8, p->muted, p->bg, buf);
+  snprintf(buf, sizeof buf, "上行%s", tx);
+  text_right(s, 124, 144, 8, p->muted, p->bg, buf);
 }
 
 /** @brief 瑞士流：页面 B（时钟历法）。 */
@@ -276,37 +285,52 @@ static void swiss_page_b(const UiSurface* s, const SystemSnapshot* snap,
   char buf[48];
   char date[32];
   char lunar[40];
-  char weather[40];
   gfx_clear(s, p->bg);
   if (snap->wifi_connected) {
     dot(s, 4, 4, 5, p->accent);
-    text_at(s, 11, 2, 7, p->muted, p->bg, "无线连接");
+    text_at(s, 11, 1, 8, p->muted, p->bg, "无线连接");
   } else {
     ring(s, 4, 4, 5, p->dim, p->bg);
-    text_at(s, 11, 2, 7, p->dim, p->bg, "无线断开");
+    text_at(s, 11, 1, 8, p->dim, p->bg, "无线未连");
   }
-  text_right(s, 124, 2, 7, p->muted, p->bg, "标准时间");
+  text_right(s, 124, 1, 8, p->muted, p->bg, "标准时间");
   gfx_fill(s, 0, 13, kUiScreenWidth, 1, p->line);
 
-  format_clock(&snap->clock, buf, sizeof buf, false);
-  text_center(s, 20, 26, p->accent, p->bg, buf);
-  format_seconds(&snap->clock, buf, sizeof buf);
-  text_center(s, 48, 8, p->muted, p->bg, buf);
-  gfx_fill(s, 0, 61, kUiScreenWidth, 1, p->line);
+  /* 单行大时钟：时分秒 (18 px) */
+  format_clock(&snap->clock, buf, sizeof buf, true);
+  text_center(s, 20, 18, p->accent, p->bg, buf);
+  gfx_fill(s, 0, 45, kUiScreenWidth, 1, p->line);
 
+  /* 公历日期精简单行（无标头） */
   format_date(&snap->clock, date, sizeof date);
-  text_at(s, 6, 65, 7, p->muted, p->bg, "公历日期");
-  text_at(s, 6, 76, 11, p->fg, p->bg, date);
-  gfx_fill(s, 0, 96, kUiScreenWidth, 1, p->line);
+  text_at(s, 6, 52, 10, p->fg, p->bg, date);
+  text_right(s, 122, 53, 8, p->muted, p->bg, "公历");
+  gfx_fill(s, 0, 68, kUiScreenWidth, 1, p->line);
 
+  /* 农历精简单行（无标头） */
   format_lunar(&snap->lunar, lunar, sizeof lunar);
-  text_at(s, 6, 100, 7, p->muted, p->bg, "传统农历");
-  text_at(s, 6, 111, 11, p->warn, p->bg, lunar);
-  gfx_fill(s, 0, 131, kUiScreenWidth, 1, p->line);
+  text_at(s, 6, 75, 10, p->warn, p->bg, lunar);
+  text_right(s, 122, 76, 8, p->dim, p->bg, "农历");
+  gfx_fill(s, 0, 91, kUiScreenWidth, 1, p->line);
 
-  format_weather(&snap->weather, weather, sizeof weather);
-  text_at(s, 4, 138, 7, p->accent, p->bg, "今日天气");
-  text_right(s, 124, 138, 7, p->fg, p->bg, weather);
+  /* 今日天气大字看板 (y=92..160) */
+  text_at(s, 6, 96, 8, p->accent, p->bg, "今日天气");
+  const char* city = (snap->weather.valid && snap->weather.city[0] != '\0')
+                         ? snap->weather.city
+                         : "--";
+  text_right(s, 122, 96, 8, p->muted, p->bg, city);
+
+  if (snap->weather.valid && !snap->weather.is_stale) {
+    text_at(s, 6, 116, 11, p->fg, p->bg, snap->weather.weather);
+    snprintf(buf, sizeof buf, "%d", snap->weather.temperature);
+    text_right(s, 110, 110, 24, p->accent, p->bg, buf);
+    text_at(s, 112, 122, 10, p->muted, p->bg, "度");
+    text_at(s, 6, 144, 8, p->muted, p->bg, "实时气象");
+    text_right(s, 122, 144, 8, p->muted, p->bg, "已同步");
+  } else {
+    text_at(s, 6, 116, 11, p->dim, p->bg, "天气暂不可用");
+    text_at(s, 6, 144, 8, p->dim, p->bg, "正在联网同步...");
+  }
 }
 
 /* --------------------------------------------------------- 流派二：字符终端 */
@@ -315,8 +339,8 @@ static void swiss_page_b(const UiSurface* s, const SystemSnapshot* snap,
 static void tui_header(const UiSurface* s, const char* title,
                        const char* status, const UiThemePalette* p) {
   gfx_fill(s, 0, 0, kUiScreenWidth, 10, p->surface_hi);
-  text_at(s, 4, 1, 7, p->bg, p->surface_hi, title);
-  text_right(s, 124, 1, 7, p->bg, p->surface_hi, status);
+  text_at(s, 4, 1, 8, p->bg, p->surface_hi, title);
+  text_right(s, 124, 1, 8, p->bg, p->surface_hi, status);
 }
 
 /** @brief TUI：10 格进度条。 */
@@ -336,7 +360,7 @@ static void tui_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   format_clock(&snap->clock, buf, sizeof buf, true);
   snprintf(value, sizeof value, "> 终端 %s", buf);
-  tui_header(s, value, snap->pc_online ? "在线" : "离线", p);
+  tui_header(s, value, snap->pc_online ? "在线" : "未连", p);
 
   int y = 16;
   const char* labels[3] = {"[CPU] ", "[GPU] ", "[内存] "};
@@ -365,19 +389,19 @@ static void tui_page_a(const UiSurface* s, const SystemSnapshot* snap,
   format_rate(snap->metrics.rx_mbps, snap->pc_online, rx, sizeof rx);
   format_rate(snap->metrics.tx_mbps, snap->pc_online, tx, sizeof tx);
   gfx_fill(s, 0, 140, kUiScreenWidth, 20, p->surface);
-  snprintf(buf, sizeof buf, "下行 %s", rx);
-  text_at(s, 5, 143, 7, p->fg, p->surface, buf);
-  snprintf(buf, sizeof buf, "上行 %s", tx);
-  text_right(s, 123, 143, 7, p->fg, p->surface, buf);
+  snprintf(buf, sizeof buf, "下行%s", rx);
+  text_at(s, 5, 142, 8, p->fg, p->surface, buf);
+  snprintf(buf, sizeof buf, "上行%s", tx);
+  text_right(s, 123, 142, 8, p->fg, p->surface, buf);
 }
 
 /** @brief TUI：一行日志（左标题、右取值）。 */
 static void tui_log_line(const UiSurface* s, int y, const char* key,
                          const char* value, uint16_t value_color,
                          const UiThemePalette* p) {
-  text_at(s, 5, y, 7, p->muted, p->bg, key);
-  text_fit(s, 7 + ui_font_width(7, key), y, 7, 123, value_color, p->bg, value);
-  gfx_dashed_hline(s, 5, y + 9, 118, p->line, 1, 1);
+  text_at(s, 5, y, 8, p->muted, p->bg, key);
+  text_fit(s, 7 + ui_font_width(8, key), y, 8, 123, value_color, p->bg, value);
+  gfx_dashed_hline(s, 5, y + 10, 118, p->line, 1, 1);
 }
 
 /** @brief TUI：页面 B（内核日志）。 */
@@ -394,7 +418,7 @@ static void tui_page_b(const UiSurface* s, const SystemSnapshot* snap,
   tui_log_line(s, y, "设备: ", "微控制器 双核", p->accent, p);
   y += 20;
   tui_log_line(s, y,
-               "时间校准: ", snap->clock.time_synced ? "对时正常" : "等待对时",
+               "时间校准: ", snap->clock.time_synced ? "对时正常" : "对时中",
                snap->clock.time_synced ? p->fg : p->warn, p);
   y += 20;
   format_weather(&snap->weather, value, sizeof value);
@@ -409,8 +433,8 @@ static void tui_page_b(const UiSurface* s, const SystemSnapshot* snap,
 
   gfx_fill(s, 0, 136, kUiScreenWidth, 24, p->surface);
   gfx_fill(s, 0, 136, kUiScreenWidth, 1, p->line);
-  text_at(s, 5, 141, 7, p->accent, p->surface, "指令就绪_");
-  text_right(s, 123, 141, 7, p->muted, p->surface, "端口8765");
+  text_at(s, 5, 141, 8, p->accent, p->surface, "指令就绪_");
+  text_right(s, 123, 141, 8, p->muted, p->surface, "端口8765");
 }
 
 /* ------------------------------------------------------------ 流派三：便当 */
@@ -430,13 +454,13 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   if (snap->pc_online) {
     dot(s, 3, 4, 4, p->accent_2);
-    text_at(s, 9, 2, 7, p->muted, p->bg, "主机: 联机");
+    text_at(s, 9, 1, 8, p->muted, p->bg, "主机: 联机");
   } else {
     ring(s, 3, 4, 4, p->dim, p->bg);
-    text_at(s, 9, 2, 7, p->dim, p->bg, "主机: 离线");
+    text_at(s, 9, 1, 8, p->dim, p->bg, "主机: 未连");
   }
   format_clock(&snap->clock, buf, sizeof buf, true);
-  text_right(s, 125, 2, 7, p->muted, p->bg, buf);
+  text_right(s, 125, 1, 8, p->muted, p->bg, buf);
 
   int tile_w = 59;
   int tile_h = 44;
@@ -447,15 +471,15 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
     bool valid = snap->pc_online && (i == 0 || snap->metrics.gpu_valid);
     const char* name = (i == 0) ? "CPU" : "GPU";
     uint16_t color = valid ? ((i == 0) ? p->accent_2 : p->dim) : p->dim;
-    text_at(s, x + 4, y + 4, 7, p->muted, p->surface, name);
+    text_at(s, x + 4, y + 3, 8, p->muted, p->surface, name);
     format_percent(i == 0 ? snap->metrics.cpu : snap->metrics.gpu, valid, value,
                    sizeof value);
     snprintf(buf, sizeof buf, "%s%%", value);
     if (i == 0) {
-      text_right(s, x + tile_w - 4, y + 4, 7, color, p->surface, buf);
+      text_right(s, x + tile_w - 4, y + 3, 8, color, p->surface, buf);
     }
     text_at(s, x + 4, y + 15, 15, color, p->surface, buf);
-    text_at(s, x + 4, y + 33, 6, p->dim, p->surface,
+    text_at(s, x + 4, y + 32, 8, p->dim, p->surface,
             valid ? (i == 0 ? "负荷正常" : "核心在线") : "核心休眠");
     gfx_fill(s, x + 1, y + tile_h - 3, tile_w - 2, 2, color);
   }
@@ -463,13 +487,13 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
   int wide_y = 13 + tile_h + 3;
   gfx_round_fill(s, 3, wide_y, 122, 40, 3, p->surface_hi);
   gfx_round_fill(s, 4, wide_y + 1, 120, 38, 2, p->surface);
-  text_at(s, 9, wide_y + 4, 7, p->muted, p->surface, "系统内存占用率");
+  text_at(s, 9, wide_y + 3, 8, p->muted, p->surface, "系统内存占用率");
   format_percent(snap->metrics.ram, snap->pc_online, value, sizeof value);
   snprintf(buf, sizeof buf, "%s%%", value);
-  text_right(s, 119, wide_y + 4, 7, p->accent, p->surface, buf);
+  text_right(s, 119, wide_y + 3, 8, p->accent, p->surface, buf);
   text_at(s, 9, wide_y + 15, 15, p->accent, p->surface, buf);
   text_at(s, 9 + ui_font_width(15, buf) + 2, wide_y + 23, 8, p->muted,
-          p->surface, "已用");
+          p->surface, "占用");
   gfx_fill(s, 4, wide_y + 37, 120, 2, p->accent);
 
   char rx[24];
@@ -479,10 +503,10 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
   int net_y = wide_y + 43;
   gfx_round_fill(s, 3, net_y, 122, 18, 3, p->surface_hi);
   gfx_round_fill(s, 4, net_y + 1, 120, 16, 2, p->surface);
-  snprintf(buf, sizeof buf, "下行 %s", rx);
-  text_at(s, 9, net_y + 5, 7, p->muted, p->surface, buf);
-  snprintf(buf, sizeof buf, "上行 %s", tx);
-  text_right(s, 119, net_y + 5, 7, p->muted, p->surface, buf);
+  snprintf(buf, sizeof buf, "下行%s", rx);
+  text_at(s, 9, net_y + 4, 8, p->muted, p->surface, buf);
+  snprintf(buf, sizeof buf, "上行%s", tx);
+  text_right(s, 119, net_y + 4, 8, p->muted, p->surface, buf);
 }
 
 /** @brief 便当：页面 B（时钟）。 */
@@ -498,16 +522,16 @@ static void bento_page_b(const UiSurface* s, const SystemSnapshot* snap,
   } else {
     ring(s, 3, 4, 4, p->dim, p->bg);
   }
-  text_at(s, 9, 2, 7, p->muted, p->bg,
-          snap->wifi_connected ? "无线连接正常" : "无线已断开");
-  text_right(s, 125, 2, 7, p->muted, p->bg, "东八区");
+  text_at(s, 9, 1, 8, p->muted, p->bg,
+          snap->wifi_connected ? "无线连接正常" : "无线未连接");
+  text_right(s, 125, 1, 8, p->muted, p->bg, "东八区");
 
   gfx_round_fill(s, 3, 13, 122, 46, 3, p->surface_hi);
   gfx_round_fill(s, 4, 14, 120, 44, 2, p->surface);
   format_clock(&snap->clock, buf, sizeof buf, true);
   text_center(s, 19, 17, p->accent_2, p->surface, buf);
   format_date(&snap->clock, date, sizeof date);
-  text_center(s, 40, 7, p->muted, p->surface, date);
+  text_center(s, 39, 8, p->muted, p->surface, date);
 
   int tile_y = 62;
   int tile_w = 59;
@@ -515,7 +539,7 @@ static void bento_page_b(const UiSurface* s, const SystemSnapshot* snap,
   format_lunar(&snap->lunar, lunar, sizeof lunar);
   gfx_round_fill(s, 3, tile_y, tile_w, tile_h, 3, p->surface_hi);
   gfx_round_fill(s, 4, tile_y + 1, tile_w - 2, tile_h - 2, 2, p->surface);
-  text_at(s, 8, tile_y + 4, 7, p->muted, p->surface, "农历民俗");
+  text_at(s, 8, tile_y + 3, 8, p->muted, p->surface, "农历民俗");
   if (snap->lunar.valid) {
     text_fit(s, 8, tile_y + 16, 9, 3 + tile_w - 4, p->accent, p->surface,
              snap->lunar.gz_year);
@@ -530,7 +554,7 @@ static void bento_page_b(const UiSurface* s, const SystemSnapshot* snap,
   gfx_round_fill(s, 3 + tile_w + 3, tile_y, tile_w, tile_h, 3, p->surface_hi);
   gfx_round_fill(s, 4 + tile_w + 3, tile_y + 1, tile_w - 2, tile_h - 2, 2,
                  p->surface);
-  text_at(s, 8 + tile_w + 3, tile_y + 4, 7, p->muted, p->surface, "实况气象");
+  text_at(s, 8 + tile_w + 3, tile_y + 3, 8, p->muted, p->surface, "实况气象");
   text_fit(s, 8 + tile_w + 3, tile_y + 16, 10, 3 + tile_w * 2 + 3 - 4,
            p->accent_2, p->surface, weather);
   gfx_fill(s, 4 + tile_w + 3, tile_y + tile_h - 4, tile_w - 2, 2, p->accent_2);
@@ -540,8 +564,8 @@ static void bento_page_b(const UiSurface* s, const SystemSnapshot* snap,
   gfx_round_fill(s, 4, net_y + 1, 120, 16, 2, p->surface);
   snprintf(buf, sizeof buf, "城市: %s",
            snap->weather.valid ? snap->weather.city : "未配置");
-  text_at(s, 9, net_y + 5, 7, p->muted, p->surface, buf);
-  text_right(s, 119, net_y + 5, 7, p->muted, p->surface, "定位就绪");
+  text_at(s, 9, net_y + 4, 8, p->muted, p->surface, buf);
+  text_right(s, 119, net_y + 4, 8, p->muted, p->surface, "定位就绪");
 }
 
 /* --------------------------------------------------------- 流派四：工业示波 */
@@ -550,7 +574,7 @@ static void bento_page_b(const UiSurface* s, const SystemSnapshot* snap,
 static void scope_row(const UiSurface* s, int y, const char* tag, float value,
                       bool valid, uint16_t color, const UiThemePalette* p) {
   char buf[8];
-  text_at(s, 4, y + 4, 7, p->muted, p->bg, tag);
+  text_at(s, 4, y + 3, 8, p->muted, p->bg, tag);
   format_percent(value, valid, buf, sizeof buf);
   text_at(s, 4, y + 14, 14, valid ? color : p->dim, p->bg, buf);
   gfx_fill(s, 52, y + 4, 72, 36, p->surface);
@@ -578,11 +602,11 @@ static void scope_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   gfx_fill(s, 0, 0, kUiScreenWidth, 10, p->surface_hi);
   format_clock(&snap->clock, buf, sizeof buf, true);
-  snprintf(buf, sizeof buf, "通道一·监测 %02d:%02d:%02d", snap->clock.hour,
+  snprintf(buf, sizeof buf, "通道一 %02d:%02d:%02d", snap->clock.hour,
            snap->clock.minute, snap->clock.second);
-  text_at(s, 4, 1, 6, p->fg, p->surface_hi, buf);
-  text_right(s, 124, 1, 6, p->muted, p->surface_hi,
-             snap->pc_online ? "自动触发" : "等待信号");
+  text_at(s, 4, 1, 8, p->fg, p->surface_hi, buf);
+  text_right(s, 124, 1, 8, p->muted, p->surface_hi,
+             snap->pc_online ? "自动触发" : "无信号");
 
   scope_row(s, 12, "CPU", snap->metrics.cpu, snap->pc_online, p->accent, p);
   scope_row(s, 56, "GPU", snap->metrics.gpu,
@@ -594,10 +618,10 @@ static void scope_page_a(const UiSurface* s, const SystemSnapshot* snap,
   format_rate(snap->metrics.rx_mbps, snap->pc_online, rx, sizeof rx);
   format_rate(snap->metrics.tx_mbps, snap->pc_online, tx, sizeof tx);
   gfx_fill(s, 0, 146, kUiScreenWidth, 14, p->surface);
-  snprintf(buf, sizeof buf, "下行 %s", rx);
-  text_at(s, 4, 149, 7, p->fg, p->surface, buf);
-  snprintf(buf, sizeof buf, "上行 %s", tx);
-  text_right(s, 124, 149, 7, p->fg, p->surface, buf);
+  snprintf(buf, sizeof buf, "下行%s", rx);
+  text_at(s, 4, 148, 8, p->fg, p->surface, buf);
+  snprintf(buf, sizeof buf, "上行%s", tx);
+  text_right(s, 124, 148, 8, p->fg, p->surface, buf);
 }
 
 /** @brief 示波：页面 B（时序遥测）。 */
@@ -606,10 +630,10 @@ static void scope_page_b(const UiSurface* s, const SystemSnapshot* snap,
   char buf[48];
   gfx_clear(s, p->bg);
   gfx_fill(s, 0, 0, kUiScreenWidth, 10, p->surface_hi);
-  snprintf(buf, sizeof buf, "通道二·遥测 %02d:%02d:%02d", snap->clock.hour,
+  snprintf(buf, sizeof buf, "通道二 %02d:%02d:%02d", snap->clock.hour,
            snap->clock.minute, snap->clock.second);
-  text_at(s, 4, 1, 6, p->fg, p->surface_hi, buf);
-  text_right(s, 124, 1, 6, p->muted, p->surface_hi,
+  text_at(s, 4, 1, 8, p->fg, p->surface_hi, buf);
+  text_right(s, 124, 1, 8, p->muted, p->surface_hi,
              snap->clock.time_synced ? "时序正常" : "对时中");
 
   gfx_fill(s, 4, 14, 120, 74, p->surface);
@@ -629,22 +653,24 @@ static void scope_page_b(const UiSurface* s, const SystemSnapshot* snap,
   }
   gfx_polyline(s, points, 20, p->accent);
 
-  text_at(s, 5, 92, 7, p->muted, p->bg, "下行峰值: ");
-  text_at(s, 5 + ui_font_width(7, "下行峰值: "), 92, 7, p->warn, p->bg,
+  text_at(s, 5, 91, 8, p->muted, p->bg, "下行峰值: ");
+  text_at(s, 5 + ui_font_width(8, "下行峰值: "), 91, 8, p->warn, p->bg,
           "-- 兆/秒");
-  text_at(s, 5, 104, 7, p->muted, p->bg, "通信延迟: ");
-  text_at(s, 5 + ui_font_width(7, "通信延迟: "), 104, 7, p->fg, p->bg,
+  text_at(s, 5, 103, 8, p->muted, p->bg, "通信延迟: ");
+  text_at(s, 5 + ui_font_width(8, "通信延迟: "), 103, 8, p->fg, p->bg,
           "-- 毫秒");
   snprintf(buf, sizeof buf, "网络包序号: #%06u", (unsigned)snap->metrics.seq);
-  text_at(s, 5, 116, 7, p->muted, p->bg, buf);
-  text_at(s, 5, 128, 7, p->muted, p->bg, "时间同步源: 阿里云节点");
+  text_at(s, 5, 115, 8, p->muted, p->bg, buf);
+  text_at(s, 5, 127, 8, p->muted, p->bg, "时间同步源: 阿里云节点");
 
   gfx_fill(s, 0, 142, kUiScreenWidth, 18, p->surface);
-  snprintf(buf, sizeof buf, "环境温度: %d度",
+  snprintf(buf, sizeof buf, "温度 %d度",
            snap->weather.valid ? snap->weather.temperature : 0);
-  text_at(s, 4, 146, 7, p->fg, p->surface, buf);
-  format_weather(&snap->weather, buf, sizeof buf);
-  text_right(s, 124, 146, 7, p->fg, p->surface, buf);
+  text_at(s, 4, 145, 8, p->fg, p->surface, buf);
+  char weather[40];
+  format_weather(&snap->weather, weather, sizeof weather);
+  text_fit(s, 8 + ui_font_width(8, buf), 145, 8, 124, p->fg, p->surface,
+           weather);
 }
 
 /* ------------------------------------------------------- 流派五：战术机甲 */
@@ -653,8 +679,8 @@ static void scope_page_b(const UiSurface* s, const SystemSnapshot* snap,
 static void hud_top(const UiSurface* s, const char* prefix, const char* status,
                     const UiThemePalette* p) {
   gfx_bevel_top(s, 0, 0, kUiScreenWidth, 14, 8, p->surface_hi);
-  text_at(s, 6, 2, 7, p->accent, p->surface_hi, prefix);
-  text_right(s, 118, 2, 7, p->muted, p->surface_hi, status);
+  text_at(s, 6, 1, 8, p->accent, p->surface_hi, prefix);
+  text_right(s, 118, 1, 8, p->muted, p->surface_hi, status);
   gfx_fill(s, 0, 14, kUiScreenWidth, 1, p->line);
 }
 
@@ -667,8 +693,8 @@ static void hud_item(const UiSurface* s, int y, const char* code,
   gfx_fill(s, 4, y, 120, box_h, p->surface);
   gfx_stroke(s, 4, y, 120, box_h, p->line);
   gfx_fill(s, 4, y, 2, box_h, valid ? color : p->dim);
-  text_at(s, 10, y + 3, 6, p->muted, p->surface, code);
-  text_at(s, 10 + ui_font_width(6, code) + 2, y + 3, 6, p->dim, p->surface,
+  text_at(s, 10, y + 2, 8, p->muted, p->surface, code);
+  text_at(s, 10 + ui_font_width(8, code) + 2, y + 2, 8, p->dim, p->surface,
           name);
   format_percent1(value, valid, buf, sizeof buf);
   text_at(s, 10, y + 13, 18, valid ? color : p->dim, p->surface, buf);
@@ -689,7 +715,7 @@ static void hud_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   snprintf(buf, sizeof buf, "战术抬头 %02d:%02d:%02d", snap->clock.hour,
            snap->clock.minute, snap->clock.second);
-  hud_top(s, buf, snap->pc_online ? "联机" : "离线", p);
+  hud_top(s, buf, snap->pc_online ? "联机" : "未连", p);
   hud_item(s, 16, "[01]", "CPU 处理器", snap->metrics.cpu, snap->pc_online,
            p->accent, p);
   hud_item(s, 60, "[02]", "GPU 显卡", snap->metrics.gpu,
@@ -701,19 +727,19 @@ static void hud_page_a(const UiSurface* s, const SystemSnapshot* snap,
   char tx[24];
   format_rate(snap->metrics.rx_mbps, snap->pc_online, rx, sizeof rx);
   format_rate(snap->metrics.tx_mbps, snap->pc_online, tx, sizeof tx);
-  snprintf(buf, sizeof buf, "下行 %s", rx);
-  text_at(s, 4, 150, 7, p->accent_2, p->bg, buf);
-  snprintf(buf, sizeof buf, "上行 %s", tx);
-  text_right(s, 124, 150, 7, p->accent_2, p->bg, buf);
+  snprintf(buf, sizeof buf, "下行%s", rx);
+  text_at(s, 4, 150, 8, p->accent_2, p->bg, buf);
+  snprintf(buf, sizeof buf, "上行%s", tx);
+  text_right(s, 124, 150, 8, p->accent_2, p->bg, buf);
 }
 
 /** @brief HUD：面板的一行。 */
 static void hud_row(const UiSurface* s, int y, const char* key,
                     const char* value, uint16_t color,
                     const UiThemePalette* p) {
-  text_at(s, 10, y, 7, p->muted, p->surface, key);
-  text_fit(s, 12 + ui_font_width(7, key), y, 7, 118, color, p->surface, value);
-  gfx_fill(s, 10, y + 9, 108, 1, p->line);
+  text_at(s, 10, y, 8, p->muted, p->surface, key);
+  text_fit(s, 12 + ui_font_width(8, key), y, 8, 118, color, p->surface, value);
+  gfx_fill(s, 10, y + 10, 108, 1, p->line);
 }
 
 /** @brief HUD：页面 B（战术巡检）。 */
@@ -732,16 +758,16 @@ static void hud_page_b(const UiSurface* s, const SystemSnapshot* snap,
   hud_row(s, 22, "机体护盾: ", "100% 满充", p->accent, p);
   hud_row(s, 36, "双核反应堆: ", "正常运转", p->fg, p);
   format_weather(&snap->weather, buf, sizeof buf);
-  hud_row(s, 50, "气象环境: ", buf, p->fg, p);
+  hud_row(s, 50, "气象: ", buf, p->fg, p);
   format_lunar(&snap->lunar, lunar, sizeof lunar);
   hud_row(s, 64, "历法时序: ", lunar, p->accent_2, p);
   hud_row(s, 78, "看门狗防护: ", "硬件锁定", p->fg, p);
 
-  text_at(s, 8, 120, 7, p->muted, p->bg, "巡检状态: 扫描完成 // 无异常");
+  text_at(s, 8, 119, 8, p->muted, p->bg, "巡检状态: 扫描完成 // 无异常");
   gfx_fill(s, 0, 134, kUiScreenWidth, 1, p->line);
-  text_at(s, 4, 140, 7, p->accent_2, p->bg, "状态: 战备正常");
-  text_right(s, 124, 140, 7, p->muted, p->bg,
-             snap->clock.time_synced ? "时间源锁定" : "时间源搜索");
+  text_at(s, 4, 139, 8, p->accent_2, p->bg, "状态: 战备正常");
+  text_right(s, 124, 139, 8, p->muted, p->bg,
+             snap->clock.time_synced ? "时间源锁定" : "时间源对时中");
 }
 
 /* -------------------------------------------------------------- 分发与切片 */
