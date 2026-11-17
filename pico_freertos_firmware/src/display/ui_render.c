@@ -267,10 +267,11 @@ static void swiss_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   swiss_top(s, snap, p);
   bool online = snap->pc_online;
-  swiss_item(s, 14, "CPU: R5 5600G", snap->metrics.cpu, online, p);
-  swiss_item(s, 57, "GPU: RTX 3060", snap->metrics.gpu,
+  /* 标签不写死机型/容量：UDP 协议只传占用率，Windows 与 Orin 共用同一固件。 */
+  swiss_item(s, 14, "CPU", snap->metrics.cpu, online, p);
+  swiss_item(s, 57, "GPU", snap->metrics.gpu,
              online && snap->metrics.gpu_valid, p);
-  swiss_item(s, 100, "系统内存: 32G", snap->metrics.ram, online, p);
+  swiss_item(s, 100, "内存", snap->metrics.ram, online, p);
   format_rate(snap->metrics.rx_mbps, online, rx, sizeof rx);
   format_rate(snap->metrics.tx_mbps, online, tx, sizeof tx);
   snprintf(buf, sizeof buf, "下行%s", rx);
