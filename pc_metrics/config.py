@@ -1,13 +1,15 @@
 """Runtime settings for the metrics broadcaster.
 
 这份配置同时服务两台发送端主机：Windows 工作站与 Jetson Orin（Ubuntu
-24.04）。两边有线/无线网卡的名字完全不同，因此网卡名支持用环境变量
+24.04）。两边有线网卡的名字完全不同，因此网卡名支持用环境变量
 ``PICO_ETHERNET_INTERFACE`` 覆盖，避免为了换一台机器就要改源码：
 
-    # Jetson 上走 Wi-Fi 直连的示例
-    PICO_ETHERNET_INTERFACE=wlP1p1s0 python -m pc_metrics.host
+    # Jetson Orin 上走有线网卡的示例（与 tools/start_metrics.sh 默认一致）
+    PICO_ETHERNET_INTERFACE=enP8p1s0 python -m pc_metrics.host
 
-不设置环境变量时沿用 Windows 工作站上已核对过的适配器名“以太网”。
+不设置环境变量时沿用 Windows 工作站上已核对过的适配器名“以太网”；
+Linux 启动脚本 ``tools/start_metrics.sh`` 会在未设置时默认导出
+``enP8p1s0``。
 """
 
 import os

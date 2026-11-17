@@ -1,6 +1,6 @@
 # Pico W 电脑状态屏
 
-基于 Raspberry Pi Pico W（RP2040）与 ST7735S 128×160 SPI TFT 的桌面状态屏。Windows 主机通过有线网卡采集 CPU、GPU、系统内存占用与有线网卡收发速率，以 UDP 广播发送到局域网；Pico W 连接同一路由器的 Wi‑Fi，实时显示这些指标。电脑指标中断约 3 秒后，Pico 自动切换为时钟模式，显示时间、日期、星期、中文干支农历和在线天气。
+基于 Raspberry Pi Pico W（RP2040）与 ST7735S 128×160 SPI TFT 的桌面状态屏。Windows 或 Jetson Orin（Ubuntu 24.04）主机通过有线网卡采集 CPU、GPU、系统内存占用与有线网卡收发速率，以 UDP 广播发送到局域网；Pico W 连接同一路由器的 Wi‑Fi，实时显示这些指标。电脑指标中断约 3 秒后，Pico 自动切换为时钟模式，显示时间、日期、星期、中文干支农历和在线天气。
 
 仓库地址：<https://github.com/changBin-x/PcPartnerWithRpiPicoW>
 
@@ -23,7 +23,7 @@
 - 主机端（`pc_metrics/`）用 Python 与 psutil 采集指标，稳态约每秒向所在子网的定向广播地址发送一个不超过 512 字节的 JSON 数据包（UDP 8765）。
 - Pico 端使用 C + FreeRTOS 固件（`pico_freertos_firmware/`）接收指标并驱动 TFT 屏幕；没有指标时显示时钟、农历和天气。`pico/` 只保留本地密钥配置（见 [`pico/README.md`](pico/README.md)）。
 - 主机端不开放任何 TCP/HTTP 端口，也不依赖云服务；数据只在本机所在广播域内传播。
-- 界面预览来自 Pico W + ST7735S 实机。当前主机侧 92 项单元测试在 Linux + Python 3.12.3 上通过，C 固件另有 13 个宿主测试；Windows 路径未实跑。
+- 界面预览来自 Pico W + ST7735S 实机。当前主机侧 98 项单元测试在 Linux + Python 3.12.3（含 Jetson Orin）上通过，C 固件另有宿主测试；Windows 路径未实跑。
 
 > **Pico 端实现是 C + FreeRTOS 固件**，位于 [`pico_freertos_firmware/`](pico_freertos_firmware/README.md)：只读资源在 `assets/`；采用 pico-sdk + FreeRTOS SMP 双核（Core 0 跑网络、Core 1 独占刷屏），带硬件看门狗与串口诊断。ST7735S 驱动采用 10 MHz SPI 时钟并实现独立的 CS 周期同步控制，已在真实 Pico W + ST7735S 上完成时钟模式与仪表盘模式的连续运行，并通过 RTSP 画面回传核验；该记录不等同于整机验收结论。详细说明见该目录的 README。
 
@@ -80,8 +80,8 @@
 
 | 项目 | 要求 | 说明 |
 | --- | --- | --- |
-| 主机系统 | Windows 10/11 + PowerShell | 采集启动脚本为 PowerShell；C 固件构建使用 bash |
-| Python | 3.10 或更新版本 | `tools/start_metrics.ps1` 启动前检查 |
+| 主机系统 | Windows 10/11 + PowerShell，或 Jetson Orin + Ubuntu 24.04 | Windows 用 `tools/start_metrics.ps1`；Linux/Orin 用 `tools/start_metrics.sh`；C 固件构建使用 bash |
+| Python | 3.10 或更新版本 | 两侧启动脚本均会检查 |
 | 主机依赖 | `psutil>=5.9,<8` | `requirements-host.txt` |
 | 微控制器 | Raspberry Pi Pico W（RP2040） | 当前固件为 C + FreeRTOS |
 | 显示屏 | ST7735S 128×160 SPI TFT | 接线见上表 |
@@ -94,31 +94,47 @@ Pico W 的无线模块仅支持 2.4 GHz 频段；路由器需开启 2.4 GHz，�
 
 ## 安装与运行
 
-### 1. 安装并启动 Windows 指标服务
+### 1. 安装并启动主机指标服务
 
-```powershell
+```bash
 python -m pip install -r requirements-host.txt
 ```
 
-编辑 `pc_metrics/config.py`：
+（Windows 可用 `python` / `py -3`；Orin / Ubuntu 建议用 `python3`。）
+
+编辑 `pc_metrics/config.py`，或用环境变量 `PICO_ETHERNET_INTERFACE` 覆盖网卡名：
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `ETHERNET_INTERFACE` | `"以太网"` | 有线网卡名称；程序按该网卡默认网关匹配 IPv4 子网 |
+| `ETHERNET_INTERFACE` | `"以太网"` | 有线网卡名称；程序按该网卡默认网关匹配 IPv4 子网。Windows 默认「以太网」；Linux 启动脚本未设环境变量时默认导出 `enP8p1s0`（本机 Orin 有线） |
 | `ETHERNET_IPV4_ADDRESS` | `""` | 可选；网卡有多个地址或读不到默认网关时，强制指定 IPv4 地址 |
 | `UDP_PORT` | `8765` | UDP 广播端口 |
 | `SAMPLE_INTERVAL_SECONDS` | `1.0` | 采样与广播间隔（秒） |
 
-启动：
+**Windows：**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/start_metrics.ps1
 ```
 
-脚本会检查 `python.exe`（会识别 Microsoft Store 的占位程序）、Python ≥ 3.10 与 `psutil` 版本区间 `>=5.9,<8`，然后运行 `python -m pc_metrics.host`。退出码：`0` 正常/Ctrl+C，`1` 环境不满足，`2` 主机采集器启动失败（网卡、地址、端口或采样间隔配置问题，原因打印在 stderr）。启动成功会打印实际使用的网卡地址、广播目标与采样间隔，例如：
+脚本会检查 `python.exe`（会识别 Microsoft Store 的占位程序）、Python ≥ 3.10 与 `psutil` 版本区间 `>=5.9,<8`，然后运行 `python -m pc_metrics.host`。
+
+**Jetson Orin / Ubuntu 24.04：**
+
+```bash
+./tools/start_metrics.sh
+```
+
+脚本检查 `python3`（或 `python`）、Python ≥ 3.10 与 `psutil` 版本区间，未设置时导出 `PICO_ETHERNET_INTERFACE=enP8p1s0`，再运行 `python -m pc_metrics.host`。换网卡时可：
+
+```bash
+PICO_ETHERNET_INTERFACE=wlP1p1s0 ./tools/start_metrics.sh
+```
+
+两侧退出码约定一致：`0` 正常/Ctrl+C，`1` 环境不满足，`2` 主机采集器启动失败（网卡、地址、端口或采样间隔配置问题，原因打印在 stderr）。启动成功会打印实际使用的网卡地址、广播目标与采样间隔，例如：
 
 ```text
-有线网卡：以太网 (192.168.1.10)；UDP 广播：192.168.1.255:8765；采样间隔：1 秒。按 Ctrl+C 停止。
+有线网卡：enP8p1s0 (192.168.10.14)；UDP 广播：192.168.10.255:8765；采样间隔：1 秒。按 Ctrl+C 停止。
 ```
 
 > 上面的 IP 只是示例。程序按网卡默认网关推导子网广播地址，不写死网段；广播地址必须属于该网卡的 IPv4 子网。
@@ -261,7 +277,7 @@ cd pico_freertos_firmware
 
 ```text
 pc_partner/
-├─ pc_metrics/              # Windows 主机采集与 UDP 广播
+├─ pc_metrics/              # Windows / Linux 主机采集与 UDP 广播
 │  ├─ __init__.py           # 包标记
 │  ├─ config.py             # 网卡、端口、采样间隔配置
 │  ├─ collectors.py         # CPU/GPU/内存/网卡速率采集
@@ -277,10 +293,11 @@ pc_partner/
 │  ├─ src/                  # 驱动、界面与网络服务
 │  └─ tests/                # 13 个宿主测试
 ├─ tools/
-│  ├─ start_metrics.ps1     # 启动主机指标服务
+│  ├─ start_metrics.ps1     # Windows 启动主机指标服务
+│  ├─ start_metrics.sh      # Linux / Orin 启动主机指标服务
 │  ├─ build_font.py         # 生成中文字库（C 资产）
 │  └─ build_lunar_table.py  # 生成农历本地表
-├─ tests/                   # Python unittest（主机与 Pico 逻辑）
+├─ tests/                   # Python unittest（主机侧）
 ├─ images/                  # README 界面预览图
 ├─ docs/                    # 本地设计/交接资料（不纳入版本库）
 ├─ .gitignore               # 忽略本地配置与内部资料
@@ -329,9 +346,9 @@ python -m pyflakes pc_metrics tools tests
 python -m compileall -q pc_metrics tests tools
 ```
 
-- 当前主机侧测试覆盖协议编解码、采集与广播地址、主机循环容错与重建，以及 `tools/start_metrics.ps1` 的静态契约；C 固件的 13 个宿主测试用 `ctest` 单独运行，命令见 [`pico_freertos_firmware/README.md`](pico_freertos_firmware/README.md)。
-- 验证环境：Linux + Python 3.12.3；`python -m unittest discover -s tests` 共 92 项全部通过，`python -m pyflakes pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools` 均无错误。Windows 路径未实跑。
-- 主机侧用 mock/注入覆盖，不依赖真实网卡或串口；`tests/test_start_metrics.py` 只读脚本做静态断言，未在 CI 中执行，改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次。仓库当前未配置 CI。
+- 当前主机侧测试覆盖协议编解码、采集与广播地址、主机循环容错与重建，以及 `tools/start_metrics.ps1` / `tools/start_metrics.sh` 的静态契约；C 固件的宿主测试用 `ctest` 单独运行，命令见 [`pico_freertos_firmware/README.md`](pico_freertos_firmware/README.md)。
+- 验证环境：Linux + Python 3.12.3（含 Jetson Orin NX）；`python -m unittest discover -s tests`；`python -m pyflakes pc_metrics tools tests` 与 `python -m compileall -q pc_metrics tests tools`。Windows 路径未实跑。
+- 主机侧用 mock/注入覆盖，不依赖真实网卡或串口；`tests/test_start_metrics.py` 与 `tests/test_start_metrics_sh.py` 只读脚本做静态断言。`.ps1` 改动后需在 Windows PowerShell 5.1 与 pwsh 7 各实跑一次；`.sh` 在 Orin / Ubuntu 上实跑。仓库当前未配置 CI。
 - 重新生成字库（需 CJK TTF/OTF 与 ASCII 字体）：
 
   ```powershell
@@ -351,9 +368,11 @@ C 固件使用的 `pico_freertos_firmware/assets/font_cn.bin` 与 `pico_freertos
 
 ## 已知限制
 
-- 仅采集有线网卡速率；Wi‑Fi 网卡速率不参与显示。
+- 仅采集有线网卡速率；Wi‑Fi 网卡速率不参与显示（可用环境变量改采 Wi‑Fi 接口，但语义仍是「选定网卡」速率）。
 - GPU 仅支持 NVIDIA（`nvidia-smi`）；AMD/Intel 显卡显示 `--`。
-- 主机与 Pico 必须位于同一可广播子网；访客网络、客户端隔离与跨 VLAN 会阻断 UDP 广播。
+- Jetson Orin 上 `nvidia-smi` 的 `utilization.gpu` 常返回 `[N/A]`，仪表盘 GPU 会显示 `--`（CPU / RAM / ETH 不受影响）；本仓库暂不接入 `tegrastats`。
+- 主机与 Pico 必须位于同一可广播子网；访客网络、客户端隔离与跨 VLAN 会阻断 UDP 广播。Pico W 仅支持 2.4 GHz Wi‑Fi。
+- Orin 联调锚点（本机）：有线 `enP8p1s0`，子网示例 `192.168.10.0/24`；换板或换网卡时用 `PICO_ETHERNET_INTERFACE` 覆盖。
 - 天气定位依赖大陆 IPv4 出口；可用 `CITY_OVERRIDE_ADCODE` 固定城市。
 - 农历本地表覆盖 1901–2100；HKO 在线 API 复核仅限其文档支持的「当年及后两年」，表外年份只使用本地表结果。
 - HKO 在线农历复核 API 的端到端可用性尚未完成验收：开发环境发现其中间 CA 已被撤销，而设备没有 CRL/OCSP 支持，且不允许关闭 TLS 校验；该路径失败时保留本地表结果并在串口输出 `HKO err`。
