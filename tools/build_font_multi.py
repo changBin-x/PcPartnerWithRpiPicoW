@@ -8,6 +8,16 @@ packs the glyphs into a single flash blob:
     + per-tier ASCII block + per-tier CJK block
 
 All glyph bitmaps are 4bpp coverage, high nibble first, packed row-major.
+
+固定字体（2026-11 起，SHA256 见 tools/fonts/README.md）：
+
+    python3 tools/build_font_multi.py \
+        --cjk-font /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc \
+        --ascii-font /usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf \
+        --output pico_freertos_firmware/assets/font_cn.bin
+
+CJK 走 TTC 的第 3 个字面（Noto Sans CJK SC Regular）；ASCII 用等宽 Noto
+Sans Mono，其 advance 恰好 0.6 em，与下方 ascii_advance() 的取整一致。
 """
 
 import argparse
@@ -18,8 +28,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 TIERS = (6, 7, 8, 9, 10, 11, 14, 15, 17, 18, 24, 26)
-# 中文只在 6–11 px 出现；14 px 以上全是数字与拉丁字母。
-CJK_TIERS = frozenset((6, 7, 8, 9, 10, 11))
+# 6–11 px 供旧版式与其余四套流派使用；14 px 是 v3 字阶的中文主力档。
+# 15 px 以上仍是纯数字与拉丁字母，不生成中文块（省 Flash）。
+CJK_TIERS = frozenset((6, 7, 8, 9, 10, 11, 14))
 ASCII_FIRST = 32
 ASCII_LAST = 126
 RENDER_SCALE = 4
@@ -31,7 +42,7 @@ TIER_RECORD_SIZE = struct.calcsize(TIER_FORMAT)
 
 # 设计稿屏内出现的全部汉字（去重 147 字）。
 DESIGN_CJK = (
-    "一七上下丙东主二云五今令件任休传位体俗信值充兆八公内农况准初制功务动包区十午占卡历双反发口号吉同喂器在城堆境处备天头字存宁完定实对就峰巡市常干年广序应度延异待微心忙态成战扫护抬指接控描摄播支无日时星显晴月朗期术机标栈校核检正步毫氏民气法波测温源满点状狗率环理用监盾看眠督硬秒稳端系线终络统绪网联自节荷行触设象负转较运连迟通道遥里锁门间防阿马"
+    "一七上下丙东主二云五今令件任休传位体俗信值充兆八公内农况准初制功务动包区十午占卡历双反发口号吉同喂器在城堆境处备天头字存宁完定实对就峰巡市常干年广序应度延异待微心忙态成战扫护抬指接控描摄播支无日时星显晴月朗期术机标栈校核检正步毫氏民气法波测温源满点状狗率环理用监盾看眠督硬秒稳端系线终络统绪网联自节荷行触设象负转较运连迟通道遥里锁门间防阿马已"
 )
 
 
@@ -80,17 +91,35 @@ def _render(font, char, width, height, baseline_px):
     return image.resize((width, height), Image.Resampling.LANCZOS)
 
 
-def _glyph(font, char, width, height, baseline_px):
+def _quantize(pixel, crisp):
+    """把 8 位覆盖度量化成 4bpp；crisp 档削掉灰边并巩固核心笔画。"""
+    value = (pixel * 15 + 127) // 255
+    if not crisp:
+        return value
+    if value < 4:
+        return 0
+    if value >= 11:
+        return 15
+    return value
+
+
+def _glyph(font, char, width, height, baseline_px, crisp=False):
     image = _render(font, char, width, height, baseline_px)
-    return _pack((pixel * 15 + 127) // 255 for pixel in image.tobytes())
+    return _pack(_quantize(pixel, crisp) for pixel in image.tobytes())
 
 
-def build(cjk_font_path, ascii_font_path, blob_path):
-    """Write the packed asset and return (byte size, CJK glyph count)."""
+def build(cjk_font_path, ascii_font_path, blob_path, cjk_index=0):
+    """Write the packed asset and return (byte size, CJK glyph count).
+
+    cjk_index 选择 TTC 内的字面序号：NotoSansCJK-Regular.ttc 的第 2 号
+    （从 0 起算）是 SC，中文屏必须用它而不是默认的 JP 字面。
+    """
     charset = cjk_charset()
     charset_bytes = charset.encode("utf-8")
     cjk_fonts = {
-        px: ImageFont.truetype(str(cjk_font_path), size=px * RENDER_SCALE)
+        px: ImageFont.truetype(
+            str(cjk_font_path), size=px * RENDER_SCALE, index=cjk_index
+        )
         for px in sorted(CJK_TIERS)
     }
     latin_fonts = {
@@ -111,8 +140,9 @@ def build(cjk_font_path, ascii_font_path, blob_path):
     for px in sorted(CJK_TIERS):
         baseline = max(1, px - 1)
         block = bytearray()
+        crisp = px >= 11  # 11 px 起笔画已有 2 px 宽度，收紧不会断笔
         for char in charset:
-            block += _glyph(cjk_fonts[px], char, px, px, baseline)
+            block += _glyph(cjk_fonts[px], char, px, px, baseline, crisp)
         cjk_blocks[px] = bytes(block)
 
     tiers_off = HEADER_SIZE
@@ -213,6 +243,9 @@ def main(argv=None):
     parser.add_argument("--cjk-font", required=True)
     parser.add_argument("--ascii-font", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--cjk-index", type=int, default=0, help="TTC 字面序号，默认 0"
+    )
     parser.add_argument("--dump", help="CJK character to dump")
     parser.add_argument("--dump-ascii", help="ASCII character to dump")
     parser.add_argument("--dump-px", type=int, default=8)
@@ -223,7 +256,7 @@ def main(argv=None):
     if args.dump_ascii:
         ascii_dump(args.output, args.dump_ascii, args.dump_px)
         return
-    size, count = build(args.cjk_font, args.ascii_font, args.output)
+    size, count = build(args.cjk_font, args.ascii_font, args.output, args.cjk_index)
     print("wrote %d bytes, %d CJK glyphs, %d tiers" % (size, count, len(TIERS)))
 
 
