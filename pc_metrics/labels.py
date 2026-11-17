@@ -200,17 +200,31 @@ def detect_cpu_label(
     return shorten_cpu_name(raw)
 
 
+def _gpu_label_from_board(board: str) -> str | None:
+    """Derive a GPU short name from board/CPU clues when smi is unavailable."""
+    text = " ".join(str(board).split())
+    if not text:
+        return None
+    lower = text.lower()
+    if "orin" in lower or "jetson" in lower:
+        return sanitize_label("Orin nvgpu")
+    return None
+
+
 def detect_gpu_label(
     *,
     query: Callable[[], str] | None = None,
+    board_reader: Callable[[], str] | None = None,
 ) -> str:
-    """Detect a short GPU label via ``nvidia-smi``.
+    """Detect a short GPU label via ``nvidia-smi``, then board clues.
 
     Args:
         query: Optional injectable name source for tests.
+        board_reader: Optional board/CPU raw-name source used when smi fails
+            (Jetson/Orin → ``Orin nvgpu``).
 
     Returns:
-        Sanitized label, or ``GPU`` when the query fails.
+        Sanitized label, or ``GPU`` when every source fails.
     """
     if query is None:
 
@@ -232,11 +246,30 @@ def detect_gpu_label(
             lines = result.stdout.splitlines()
             return lines[0].strip() if lines else ""
 
+    raw = ""
     try:
-        raw = query()
+        raw = query() or ""
     except (OSError, ValueError, subprocess.SubprocessError):
-        return DEFAULT_GPU_LABEL
-    return shorten_gpu_name(raw)
+        raw = ""
+
+    if raw.strip():
+        lower = raw.lower()
+        if "couldn't communicate" not in lower and "has failed" not in lower:
+            return shorten_gpu_name(raw)
+
+    if board_reader is None:
+        if sys.platform.startswith("linux"):
+            board_reader = _linux_cpu_raw
+        else:
+            board_reader = lambda: ""
+    try:
+        board = board_reader() or ""
+    except (OSError, ValueError, RuntimeError):
+        board = ""
+    derived = _gpu_label_from_board(board)
+    if derived:
+        return derived
+    return DEFAULT_GPU_LABEL
 
 
 def detect_ram_label(

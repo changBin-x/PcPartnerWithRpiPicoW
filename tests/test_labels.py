@@ -67,7 +67,30 @@ class LabelHelperTests(unittest.TestCase):
             raise OSError("nope")
 
         self.assertEqual(detect_cpu_label(reader=boom), DEFAULT_CPU_LABEL)
-        self.assertEqual(detect_gpu_label(query=boom), DEFAULT_GPU_LABEL)
+        self.assertEqual(
+            detect_gpu_label(query=boom, board_reader=boom),
+            DEFAULT_GPU_LABEL,
+        )
+
+    def test_gpu_falls_back_to_orin_board_clue(self):
+        def boom() -> str:
+            raise OSError("nope")
+
+        self.assertEqual(
+            detect_gpu_label(
+                query=boom,
+                board_reader=lambda: "NVIDIA Jetson Orin NX Engineering Kit",
+            ),
+            "Orin nvgpu",
+        )
+        self.assertEqual(
+            detect_gpu_label(
+                query=lambda: "NVIDIA-SMI has failed because it couldn't "
+                "communicate with the NVIDIA driver.",
+                board_reader=lambda: "Jetson Orin Nano",
+            ),
+            "Orin nvgpu",
+        )
 
     def test_resolve_prefers_env_overrides(self):
         labels = resolve_identity_labels(
