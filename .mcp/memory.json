@@ -1,0 +1,22 @@
+{
+  "entities": [
+    {
+      "name": "pc_metrics_linux_orin",
+      "entityType": "module",
+      "observations": [
+        "Jetson nvidia-smi utilization.gpu 常为 [N/A]，GPU 显示 --，暂不接 tegrastats",
+        "Linux/Orin 启动入口 tools/start_metrics.sh；未设环境变量时默认 PICO_ETHERNET_INTERFACE=enP8p1s0",
+        "UDP 协议已升至 v2：固定 11 字段，新增 cpu_label/gpu_label/ram_label（可打印 ASCII≤16）",
+        "nvidia-smi 失败时若板型含 orin/jetson 则 gpu_label=Orin nvgpu",
+        "主机通过 pc_metrics/labels.py 自动探测身份标签，可用 PICO_CPU_LABEL/PICO_GPU_LABEL/PICO_RAM_LABEL 覆盖",
+        "固件仅接受 v2；旧 v1 包丢弃；各监控主题显示主机下发的身份标签",
+        "已改为通用标签 CPU/GPU/内存（ui_render.c swiss_page_a）",
+        "本机 Orin NX 有线 enP8p1s0=192.168.10.14，广播 192.168.10.255:8765 已实跑",
+        "瑞士流仪表盘曾硬编码 CPU:R5 5600G / GPU:RTX 3060 / 系统内存:32G，与 Orin 平台不符且协议不传机型名",
+        "监控 UI 统一显示 CPU:/GPU:/内存: + 短型号/容量档；占用率仍单独画",
+        "静态契约测试 tests/test_start_metrics_sh.py；主机侧 unittest 现为 98 项"
+      ]
+    }
+  ],
+  "relations": []
+}

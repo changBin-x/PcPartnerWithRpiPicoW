@@ -1,11 +1,10 @@
 {
-  "activeTask": "AGENTS.md 定稿：删除「并推送」、§7 改为红/绿/蓝真实子代理审查",
-  "status": "COMPLETED",
-  "reason": "已采纳指标中断 3 秒自动切换与增量中文字库方案，完成 docs/page_switch_policy.md 规范落地。",
+  "activeTask": "原子提交剩余变更并推送 origin/main",
+  "status": "IN_PROGRESS",
+  "reason": "用户要求按中文 Conventional Commits 提交全部剩余变更并推送",
   "nextSteps": [
-    "AGENTS.md 保持 197 行、0–12 章节不变，后续规则调整沿用同等密度",
-    "固件为 C + FreeRTOS（pico_freertos_firmware/），文档口径已同步，避免再出现 MicroPython 表述",
-    "整机验收仍未完成：长时间稳定性、看门狗复位、断电重启自动恢复待真机确认"
+    "gitignore/字库/脚本/文档/mcp 原子提交",
+    "git push"
   ],
-  "updatedAt": "2026-11-15T12:14:44.123Z"
+  "updatedAt": "2026-11-17T13:23:26.993Z"
 }
