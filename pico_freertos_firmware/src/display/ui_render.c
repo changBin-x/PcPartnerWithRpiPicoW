@@ -246,6 +246,15 @@ static const char* metric_label(const char* value, const char* fallback) {
   return (value != NULL && value[0] != '\0') ? value : fallback;
 }
 
+/**
+ * @brief 拼监控行标题：「前缀 + 身份标签」。
+ * 前缀固定为 CPU:/GPU:/内存:；标签来自 UDP v2，空则用 fallback。
+ */
+static void format_metric_title(char* out, size_t size, const char* prefix,
+                                const char* label, const char* fallback) {
+  snprintf(out, size, "%s%s", prefix, metric_label(label, fallback));
+}
+
 /** @brief 瑞士流：一行指标（标签 + 标签胶囊 + 24 px 大数值）。 */
 static void swiss_item(const UiSurface* s, int y, const char* label,
                        float value, bool active, const UiThemePalette* p) {
@@ -273,13 +282,20 @@ static void swiss_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   swiss_top(s, snap, p);
   bool online = snap->pc_online;
-  /* 身份文案来自 UDP v2 的 cpu/gpu/ram_label，随上位机变化。 */
-  swiss_item(s, 14, metric_label(snap->metrics.cpu_label, "CPU"),
-             snap->metrics.cpu, online, p);
-  swiss_item(s, 57, metric_label(snap->metrics.gpu_label, "GPU"),
-             snap->metrics.gpu, online && snap->metrics.gpu_valid, p);
-  swiss_item(s, 100, metric_label(snap->metrics.ram_label, "RAM"),
-             snap->metrics.ram, online, p);
+  char cpu_title[32];
+  char gpu_title[32];
+  char ram_title[32];
+  /* 前缀本地固定；型号/容量来自 UDP v2 标签。 */
+  format_metric_title(cpu_title, sizeof cpu_title,
+                      "CPU:", snap->metrics.cpu_label, "CPU");
+  format_metric_title(gpu_title, sizeof gpu_title,
+                      "GPU:", snap->metrics.gpu_label, "GPU");
+  format_metric_title(ram_title, sizeof ram_title,
+                      "内存:", snap->metrics.ram_label, "RAM");
+  swiss_item(s, 14, cpu_title, snap->metrics.cpu, online, p);
+  swiss_item(s, 57, gpu_title, snap->metrics.gpu,
+             online && snap->metrics.gpu_valid, p);
+  swiss_item(s, 100, ram_title, snap->metrics.ram, online, p);
   format_rate(snap->metrics.rx_mbps, online, rx, sizeof rx);
   format_rate(snap->metrics.tx_mbps, online, tx, sizeof tx);
   snprintf(buf, sizeof buf, "下行%s", rx);
@@ -372,11 +388,16 @@ static void tui_page_a(const UiSurface* s, const SystemSnapshot* snap,
   tui_header(s, value, snap->pc_online ? "在线" : "未连", p);
 
   int y = 16;
-  const char* labels[3] = {
-      metric_label(snap->metrics.cpu_label, "CPU"),
-      metric_label(snap->metrics.gpu_label, "GPU"),
-      metric_label(snap->metrics.ram_label, "RAM"),
-  };
+  char cpu_title[32];
+  char gpu_title[32];
+  char ram_title[32];
+  format_metric_title(cpu_title, sizeof cpu_title,
+                      "CPU:", snap->metrics.cpu_label, "CPU");
+  format_metric_title(gpu_title, sizeof gpu_title,
+                      "GPU:", snap->metrics.gpu_label, "GPU");
+  format_metric_title(ram_title, sizeof ram_title,
+                      "内存:", snap->metrics.ram_label, "RAM");
+  const char* titles[3] = {cpu_title, gpu_title, ram_title};
   const char* states[3] = {"稳定", "休眠", "负荷"};
   float values[3] = {snap->metrics.cpu, snap->metrics.gpu, snap->metrics.ram};
   bool valid[3] = {snap->pc_online, snap->pc_online && snap->metrics.gpu_valid,
@@ -384,7 +405,7 @@ static void tui_page_a(const UiSurface* s, const SystemSnapshot* snap,
   for (int i = 0; i < 3; ++i) {
     char line[64];
     format_percent1(values[i], valid[i], value, sizeof value);
-    snprintf(line, sizeof line, "[%s] %s%%", labels[i], value);
+    snprintf(line, sizeof line, "%s %s%%", titles[i], value);
     uint16_t fg = valid[i] ? (i == 1 ? p->dim : p->fg) : p->dim;
     text_at(s, 5, y, 8, fg, p->bg, line);
     text_right(s, 123, y, 8, fg, p->bg, states[i]);
@@ -482,8 +503,14 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
     int y = 13;
     bento_tile(s, x, y, tile_w, tile_h, p);
     bool valid = snap->pc_online && (i == 0 || snap->metrics.gpu_valid);
-    const char* name = (i == 0) ? metric_label(snap->metrics.cpu_label, "CPU")
-                                : metric_label(snap->metrics.gpu_label, "GPU");
+    char name[32];
+    if (i == 0) {
+      format_metric_title(name, sizeof name, "CPU:", snap->metrics.cpu_label,
+                          "CPU");
+    } else {
+      format_metric_title(name, sizeof name, "GPU:", snap->metrics.gpu_label,
+                          "GPU");
+    }
     uint16_t color = valid ? ((i == 0) ? p->accent_2 : p->dim) : p->dim;
     text_fit(s, x + 4, y + 3, 8, x + tile_w - 28, p->muted, p->surface, name);
     format_percent(i == 0 ? snap->metrics.cpu : snap->metrics.gpu, valid, value,
@@ -501,8 +528,10 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
   int wide_y = 13 + tile_h + 3;
   gfx_round_fill(s, 3, wide_y, 122, 40, 3, p->surface_hi);
   gfx_round_fill(s, 4, wide_y + 1, 120, 38, 2, p->surface);
-  text_fit(s, 9, wide_y + 3, 8, 90, p->muted, p->surface,
-           metric_label(snap->metrics.ram_label, "RAM"));
+  char ram_title[32];
+  format_metric_title(ram_title, sizeof ram_title,
+                      "内存:", snap->metrics.ram_label, "RAM");
+  text_fit(s, 9, wide_y + 3, 8, 90, p->muted, p->surface, ram_title);
   format_percent(snap->metrics.ram, snap->pc_online, value, sizeof value);
   snprintf(buf, sizeof buf, "%s%%", value);
   text_right(s, 119, wide_y + 3, 8, p->accent, p->surface, buf);
@@ -623,13 +652,19 @@ static void scope_page_a(const UiSurface* s, const SystemSnapshot* snap,
   text_right(s, 124, 1, 8, p->muted, p->surface_hi,
              snap->pc_online ? "自动触发" : "无信号");
 
-  scope_row(s, 12, metric_label(snap->metrics.cpu_label, "CPU"),
-            snap->metrics.cpu, snap->pc_online, p->accent, p);
-  scope_row(s, 56, metric_label(snap->metrics.gpu_label, "GPU"),
-            snap->metrics.gpu, snap->pc_online && snap->metrics.gpu_valid,
-            p->muted, p);
-  scope_row(s, 100, metric_label(snap->metrics.ram_label, "RAM"),
-            snap->metrics.ram, snap->pc_online, p->warn, p);
+  char cpu_title[32];
+  char gpu_title[32];
+  char ram_title[32];
+  format_metric_title(cpu_title, sizeof cpu_title,
+                      "CPU:", snap->metrics.cpu_label, "CPU");
+  format_metric_title(gpu_title, sizeof gpu_title,
+                      "GPU:", snap->metrics.gpu_label, "GPU");
+  format_metric_title(ram_title, sizeof ram_title,
+                      "内存:", snap->metrics.ram_label, "RAM");
+  scope_row(s, 12, cpu_title, snap->metrics.cpu, snap->pc_online, p->accent, p);
+  scope_row(s, 56, gpu_title, snap->metrics.gpu,
+            snap->pc_online && snap->metrics.gpu_valid, p->muted, p);
+  scope_row(s, 100, ram_title, snap->metrics.ram, snap->pc_online, p->warn, p);
 
   char rx[24];
   char tx[24];
@@ -734,13 +769,21 @@ static void hud_page_a(const UiSurface* s, const SystemSnapshot* snap,
   snprintf(buf, sizeof buf, "战术抬头 %02d:%02d:%02d", snap->clock.hour,
            snap->clock.minute, snap->clock.second);
   hud_top(s, buf, snap->pc_online ? "联机" : "未连", p);
-  hud_item(s, 16, "[01]", metric_label(snap->metrics.cpu_label, "CPU"),
-           snap->metrics.cpu, snap->pc_online, p->accent, p);
-  hud_item(s, 60, "[02]", metric_label(snap->metrics.gpu_label, "GPU"),
-           snap->metrics.gpu, snap->pc_online && snap->metrics.gpu_valid,
-           p->muted, p);
-  hud_item(s, 104, "[03]", metric_label(snap->metrics.ram_label, "RAM"),
-           snap->metrics.ram, snap->pc_online, p->accent_2, p);
+  char cpu_title[32];
+  char gpu_title[32];
+  char ram_title[32];
+  format_metric_title(cpu_title, sizeof cpu_title,
+                      "CPU:", snap->metrics.cpu_label, "CPU");
+  format_metric_title(gpu_title, sizeof gpu_title,
+                      "GPU:", snap->metrics.gpu_label, "GPU");
+  format_metric_title(ram_title, sizeof ram_title,
+                      "内存:", snap->metrics.ram_label, "RAM");
+  hud_item(s, 16, "[01]", cpu_title, snap->metrics.cpu, snap->pc_online,
+           p->accent, p);
+  hud_item(s, 60, "[02]", gpu_title, snap->metrics.gpu,
+           snap->pc_online && snap->metrics.gpu_valid, p->muted, p);
+  hud_item(s, 104, "[03]", ram_title, snap->metrics.ram, snap->pc_online,
+           p->accent_2, p);
 
   char rx[24];
   char tx[24];
