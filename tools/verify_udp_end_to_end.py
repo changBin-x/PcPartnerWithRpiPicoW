@@ -61,17 +61,19 @@ def build_sink(output):
 
 def collect_packets():
     """用真实编码器造出待发送的报文。"""
+    labels = {"cpu_label": "CPU", "gpu_label": "GPU", "ram_label": "16G"}
     return [
         ("典型值", encode_packet(seq=1, sampled_at=1762400000, cpu=42, gpu=15,
-                                 ram=61, rx=1.5, tx=0.25)),
+                                 ram=61, rx=1.5, tx=0.25, **labels)),
         ("无独显", encode_packet(seq=2, sampled_at=1762400001, cpu=7, gpu=None,
-                                 ram=33, rx=0.0, tx=0.0)),
+                                 ram=33, rx=0.0, tx=0.0, **labels)),
         ("满载", encode_packet(seq=3, sampled_at=1762400002, cpu=100, gpu=100,
-                               ram=100, rx=999.99, tx=1234.5)),
+                               ram=100, rx=999.99, tx=1234.5, **labels)),
         ("空载", encode_packet(seq=4, sampled_at=1762400003, cpu=0, gpu=0,
-                               ram=0, rx=0, tx=0)),
+                               ram=0, rx=0, tx=0, **labels)),
         ("浮点占比", encode_packet(seq=5, sampled_at=1762400004, cpu=42.5,
-                                   gpu=0.0, ram=61.25, rx=0.001, tx=0.002)),
+                                   gpu=0.0, ram=61.25, rx=0.001, tx=0.002,
+                                   **labels)),
     ]
 
 

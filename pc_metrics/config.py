@@ -10,6 +10,10 @@
 不设置环境变量时沿用 Windows 工作站上已核对过的适配器名“以太网”；
 Linux 启动脚本 ``tools/start_metrics.sh`` 会在未设置时默认导出
 ``enP8p1s0``。
+
+UDP v2 身份标签也可覆盖（最长 16 字节可打印 ASCII）：
+
+- ``PICO_CPU_LABEL`` / ``PICO_GPU_LABEL`` / ``PICO_RAM_LABEL``
 """
 
 import os

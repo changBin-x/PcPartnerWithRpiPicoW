@@ -39,6 +39,9 @@ static void test_update_metrics_switches_to_dashboard(void) {
   metrics.ram = 72.3f;
   metrics.rx_mbps = 1.25f;
   metrics.tx_mbps = 0.45f;
+  memcpy(metrics.cpu_label, "Orin NX", sizeof("Orin NX"));
+  memcpy(metrics.gpu_label, "Orin nvgpu", sizeof("Orin nvgpu"));
+  memcpy(metrics.ram_label, "16G", sizeof("16G"));
 
   system_state_update_metrics(&metrics, 1000);
 
@@ -53,6 +56,9 @@ static void test_update_metrics_switches_to_dashboard(void) {
   assert(snap.metrics.tx_mbps == 0.45f);
   assert(snap.metrics.seq == 101);
   assert(snap.metrics.ts == 1700000000u);
+  assert(strcmp(snap.metrics.cpu_label, "Orin NX") == 0);
+  assert(strcmp(snap.metrics.gpu_label, "Orin nvgpu") == 0);
+  assert(strcmp(snap.metrics.ram_label, "16G") == 0);
   assert(snap.last_pc_metric_tick == 1000);
 }
 

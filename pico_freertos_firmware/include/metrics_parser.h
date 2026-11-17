@@ -10,7 +10,7 @@
 typedef enum {
   kMetricsParseOk = 0,       /* 解析成功。 */
   kMetricsErrInvalidJson,    /* JSON 非法或根节点不是对象。 */
-  kMetricsErrMissingField,   /* 协议 v1 的必填字段缺失。 */
+  kMetricsErrMissingField,   /* 协议 v2 的必填字段缺失。 */
   kMetricsErrInvalidVersion, /* 协议版本不受支持。 */
   kMetricsErrInvalidValue,   /* 字段类型或取值不合法。 */
   kMetricsErrStaleSeq        /* 序号重复或回退。 */

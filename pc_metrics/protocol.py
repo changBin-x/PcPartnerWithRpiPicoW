@@ -1,12 +1,51 @@
-"""Version 1 UDP packet codec for PC metrics."""
+"""Version 2 UDP packet codec for PC metrics."""
 
 import json
 import math
 from typing import Any, NoReturn
 
 MAX_PACKET_BYTES = 512
-PACKET_VERSION = 1
-_FIELDS = frozenset(("v", "seq", "ts", "cpu", "gpu", "ram", "rx", "tx"))
+PACKET_VERSION = 2
+LABEL_MAX_BYTES = 16
+_FIELDS = frozenset(
+    (
+        "v",
+        "seq",
+        "ts",
+        "cpu",
+        "gpu",
+        "ram",
+        "rx",
+        "tx",
+        "cpu_label",
+        "gpu_label",
+        "ram_label",
+    )
+)
+
+
+def sanitize_label(value: Any) -> str | None:
+    """Return a printable ASCII label of at most ``LABEL_MAX_BYTES``.
+
+    Args:
+        value: Candidate label. Non-strings are rejected.
+
+    Returns:
+        The cleaned label, or ``None`` when empty/invalid after cleaning.
+        Non-ASCII and control bytes are dropped; length is truncated to
+        ``LABEL_MAX_BYTES``.
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned_chars: list[str] = []
+    for char in value.strip():
+        code = ord(char)
+        if 0x20 <= code <= 0x7E:
+            cleaned_chars.append(char)
+    cleaned = "".join(cleaned_chars)
+    if not cleaned:
+        return None
+    return cleaned[:LABEL_MAX_BYTES]
 
 
 def _integer(value: Any, *, minimum: int, field: str) -> int:
@@ -38,6 +77,17 @@ def _number(
     return number
 
 
+def _label(value: Any, *, field: str) -> str:
+    """Require a non-empty printable ASCII string within the length cap."""
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} 必须是可打印 ASCII 字符串")
+    if len(value) > LABEL_MAX_BYTES:
+        raise ValueError(f"{field} 超过 {LABEL_MAX_BYTES} 字节")
+    if any(ord(char) < 0x20 or ord(char) > 0x7E for char in value):
+        raise ValueError(f"{field} 必须是可打印 ASCII 字符串")
+    return value
+
+
 def encode_packet(
     seq: int,
     sampled_at: int,
@@ -46,8 +96,12 @@ def encode_packet(
     ram: int | float,
     rx: int | float,
     tx: int | float,
+    *,
+    cpu_label: str,
+    gpu_label: str,
+    ram_label: str,
 ) -> bytes:
-    """Validate and encode one v1 metrics packet.
+    """Validate and encode one v2 metrics packet.
 
     Args:
         seq: Non-negative packet sequence number.
@@ -57,6 +111,9 @@ def encode_packet(
         ram: RAM utilization percentage from 0 through 100.
         rx: Receive throughput in decimal MB/s.
         tx: Transmit throughput in decimal MB/s.
+        cpu_label: Host CPU identity, printable ASCII, 1–16 bytes.
+        gpu_label: Host GPU identity, printable ASCII, 1–16 bytes.
+        ram_label: Host RAM tier identity, printable ASCII, 1–16 bytes.
 
     Returns:
         The compact UTF-8 JSON packet as bytes.
@@ -73,6 +130,9 @@ def encode_packet(
         "ram": _number(ram, minimum=0, maximum=100, field="ram"),
         "rx": _number(rx, minimum=0, field="rx"),
         "tx": _number(tx, minimum=0, field="tx"),
+        "cpu_label": _label(cpu_label, field="cpu_label"),
+        "gpu_label": _label(gpu_label, field="gpu_label"),
+        "ram_label": _label(ram_label, field="ram_label"),
     }
     try:
         data = json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -105,16 +165,17 @@ def _reject_constant(value: str) -> NoReturn:
     raise ValueError(f"不允许 JSON 常量: {value}")
 
 
-def decode_packet(data: bytes) -> dict[str, int | float | None]:
-    """Decode and validate a v1 UTF-8 JSON packet.
+def decode_packet(data: bytes) -> dict[str, int | float | str | None]:
+    """Decode and validate a v2 UTF-8 JSON packet.
 
     Args:
         data: Non-empty bytes containing a packet no larger than 512 bytes.
 
     Returns:
-        A mapping with exactly ``v``, ``seq``, ``ts``, ``cpu``, ``gpu``,
-        ``ram``, ``rx``, and ``tx``. ``ts`` is a Unix timestamp in seconds;
-        ``rx`` and ``tx`` are throughput values in decimal MB/s. GPU may be None.
+        A mapping with exactly the eleven v2 fields. ``ts`` is a Unix
+        timestamp in seconds; ``rx`` and ``tx`` are throughput values in
+        decimal MB/s. GPU may be None. Labels are printable ASCII strings
+        of length 1–16.
 
         Only lower bounds are checked for ``seq``, ``ts``, ``rx``, and ``tx``;
         no upper bound is imposed on them. The percentage fields ``cpu``,
@@ -139,16 +200,25 @@ def decode_packet(data: bytes) -> dict[str, int | float | None]:
         raise ValueError("数据包不是有效 JSON") from exc
     if not isinstance(payload, dict) or frozenset(payload) != _FIELDS:
         raise ValueError("协议字段不匹配")
-    if isinstance(payload["v"], bool) or not isinstance(payload["v"], int) or payload["v"] != PACKET_VERSION:
+    if (
+        isinstance(payload["v"], bool)
+        or not isinstance(payload["v"], int)
+        or payload["v"] != PACKET_VERSION
+    ):
         raise ValueError("不支持的协议版本")
-    result = {
+    result: dict[str, int | float | str | None] = {
         "v": PACKET_VERSION,
         "seq": _integer(payload["seq"], minimum=0, field="seq"),
         "ts": _integer(payload["ts"], minimum=1, field="ts"),
         "cpu": _number(payload["cpu"], minimum=0, maximum=100, field="cpu"),
-        "gpu": _number(payload["gpu"], minimum=0, maximum=100, allow_none=True, field="gpu"),
+        "gpu": _number(
+            payload["gpu"], minimum=0, maximum=100, allow_none=True, field="gpu"
+        ),
         "ram": _number(payload["ram"], minimum=0, maximum=100, field="ram"),
         "rx": _number(payload["rx"], minimum=0, field="rx"),
         "tx": _number(payload["tx"], minimum=0, field="tx"),
+        "cpu_label": _label(payload["cpu_label"], field="cpu_label"),
+        "gpu_label": _label(payload["gpu_label"], field="gpu_label"),
+        "ram_label": _label(payload["ram_label"], field="ram_label"),
     }
     return result

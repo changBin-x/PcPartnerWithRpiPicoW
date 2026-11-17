@@ -38,6 +38,8 @@ PARSE_INVALID_VERSION = 3
 PARSE_INVALID_VALUE = 4
 PARSE_STALE_SEQ = 5
 
+LABELS = {"cpu_label": "CPU", "gpu_label": "GPU", "ram_label": "16G"}
+
 HEADER = """\
 /* 本文件由 tools/gen_protocol_fixtures.py 生成，请勿手工编辑。
  * 合法报文来自 PC 端真实的 pc_metrics.protocol.encode_packet，
@@ -81,45 +83,76 @@ def c_literal(payload):
     return "".join(out)
 
 
+def _encode(**kwargs):
+    """Encode with default identity labels unless overridden."""
+    fields = dict(LABELS)
+    fields.update(kwargs)
+    return encode_packet(**fields)
+
+
 def valid_cases():
     """用真实 Python 编码器构造的合法报文。"""
     return [
         (
             "典型值",
-            encode_packet(
+            _encode(
                 seq=1, sampled_at=1762400000, cpu=42, gpu=15, ram=61,
                 rx=1.5, tx=0.25,
             ),
         ),
         (
             "无独显 gpu 为 null",
-            encode_packet(
+            _encode(
                 seq=2, sampled_at=1762400001, cpu=7, gpu=None, ram=33,
                 rx=0.0, tx=0.0,
             ),
         ),
         (
             "全部取值为零的边界",
-            encode_packet(
+            _encode(
                 seq=3, sampled_at=1762400002, cpu=0, gpu=0, ram=0,
                 rx=0, tx=0,
             ),
         ),
         (
             "百分比上界 100",
-            encode_packet(
+            _encode(
                 seq=4, sampled_at=1762400003, cpu=100, gpu=100, ram=100,
                 rx=999.99, tx=1234.5,
             ),
         ),
         (
             "浮点百分比",
-            encode_packet(
+            _encode(
                 seq=5, sampled_at=1762400004, cpu=42.5, gpu=0.0, ram=61.25,
                 rx=0.001, tx=0.002,
             ),
         ),
+        (
+            "自定义身份标签",
+            _encode(
+                seq=6, sampled_at=1762400005, cpu=10, gpu=None, ram=20,
+                rx=0, tx=0, cpu_label="Orin NX", gpu_label="Orin nvgpu",
+                ram_label="16G",
+            ),
+        ),
     ]
+
+
+def _invalid_payload(**overrides):
+    payload = {
+        "v": PACKET_VERSION,
+        "seq": 1,
+        "ts": 1762400000,
+        "cpu": 1,
+        "gpu": 1,
+        "ram": 1,
+        "rx": 1,
+        "tx": 1,
+        **LABELS,
+    }
+    payload.update(overrides)
+    return json.dumps(payload).encode()
 
 
 def invalid_cases():
@@ -141,13 +174,23 @@ def invalid_cases():
             PARSE_INVALID_JSON,
         ),
         (
-            "版本号不支持",
+            "旧版 v1 八字段",
             json.dumps(
                 {
-                    "v": PACKET_VERSION + 1, "seq": 1, "ts": 1762400000,
+                    "v": 1, "seq": 1, "ts": 1762400000,
                     "cpu": 1, "gpu": 1, "ram": 1, "rx": 1, "tx": 1,
                 }
             ).encode(),
+            PARSE_MISSING_FIELD,
+        ),
+        (
+            "版本号为已废弃的 1",
+            _invalid_payload(v=1),
+            PARSE_INVALID_VERSION,
+        ),
+        (
+            "版本号不支持",
+            _invalid_payload(v=PACKET_VERSION + 1),
             PARSE_INVALID_VERSION,
         ),
         (
@@ -155,54 +198,63 @@ def invalid_cases():
             json.dumps(
                 {
                     "v": PACKET_VERSION, "seq": 1, "ts": 1762400000,
-                    "cpu": 1, "gpu": 1, "rx": 1, "tx": 1,
+                    "cpu": 1, "gpu": 1, "rx": 1, "tx": 1, **LABELS,
+                }
+            ).encode(),
+            PARSE_MISSING_FIELD,
+        ),
+        (
+            "缺少 cpu_label 字段",
+            json.dumps(
+                {
+                    "v": PACKET_VERSION, "seq": 1, "ts": 1762400000,
+                    "cpu": 1, "gpu": 1, "ram": 1, "rx": 1, "tx": 1,
+                    "gpu_label": "GPU", "ram_label": "16G",
                 }
             ).encode(),
             PARSE_MISSING_FIELD,
         ),
         (
             "cpu 超出 100",
-            json.dumps(
-                {
-                    "v": PACKET_VERSION, "seq": 1, "ts": 1762400000,
-                    "cpu": 101, "gpu": 1, "ram": 1, "rx": 1, "tx": 1,
-                }
-            ).encode(),
+            _invalid_payload(cpu=101),
             PARSE_INVALID_VALUE,
         ),
         (
             "cpu 为负数",
-            json.dumps(
-                {
-                    "v": PACKET_VERSION, "seq": 1, "ts": 1762400000,
-                    "cpu": -1, "gpu": 1, "ram": 1, "rx": 1, "tx": 1,
-                }
-            ).encode(),
+            _invalid_payload(cpu=-1),
             PARSE_INVALID_VALUE,
         ),
         (
             "ts 为零",
-            json.dumps(
-                {
-                    "v": PACKET_VERSION, "seq": 1, "ts": 0,
-                    "cpu": 1, "gpu": 1, "ram": 1, "rx": 1, "tx": 1,
-                }
-            ).encode(),
+            _invalid_payload(ts=0),
             PARSE_INVALID_VALUE,
         ),
         (
             "gpu 类型错误",
+            _invalid_payload(gpu="abc"),
+            PARSE_INVALID_VALUE,
+        ),
+        (
+            "cpu_label 为空",
+            _invalid_payload(cpu_label=""),
+            PARSE_INVALID_VALUE,
+        ),
+        (
+            "cpu_label 含非 ASCII",
             json.dumps(
                 {
                     "v": PACKET_VERSION, "seq": 1, "ts": 1762400000,
-                    "cpu": 1, "gpu": "abc", "ram": 1, "rx": 1, "tx": 1,
-                }
+                    "cpu": 1, "gpu": 1, "ram": 1, "rx": 1, "tx": 1,
+                    "cpu_label": "处理器", "gpu_label": "GPU",
+                    "ram_label": "16G",
+                },
+                ensure_ascii=False,
             ).encode(),
             PARSE_INVALID_VALUE,
         ),
         (
             "尾部有非空白垃圾",
-            encode_packet(
+            _encode(
                 seq=9, sampled_at=1762400000, cpu=1, gpu=1, ram=1,
                 rx=1, tx=1,
             )
@@ -211,12 +263,7 @@ def invalid_cases():
         ),
         (
             "seq 为负数",
-            json.dumps(
-                {
-                    "v": PACKET_VERSION, "seq": -3, "ts": 1762400000,
-                    "cpu": 1, "gpu": 1, "ram": 1, "rx": 1, "tx": 1,
-                }
-            ).encode(),
+            _invalid_payload(seq=-3),
             PARSE_INVALID_VALUE,
         ),
     ]

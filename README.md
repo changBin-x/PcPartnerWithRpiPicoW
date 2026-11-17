@@ -110,6 +110,7 @@ python -m pip install -r requirements-host.txt
 | `ETHERNET_IPV4_ADDRESS` | `""` | 可选；网卡有多个地址或读不到默认网关时，强制指定 IPv4 地址 |
 | `UDP_PORT` | `8765` | UDP 广播端口 |
 | `SAMPLE_INTERVAL_SECONDS` | `1.0` | 采样与广播间隔（秒） |
+| `PICO_CPU_LABEL` / `PICO_GPU_LABEL` / `PICO_RAM_LABEL` | （自动探测） | 可选；覆盖仪表盘身份文案（可打印 ASCII，最长 16 字节） |
 
 **Windows：**
 
@@ -134,7 +135,7 @@ PICO_ETHERNET_INTERFACE=wlP1p1s0 ./tools/start_metrics.sh
 两侧退出码约定一致：`0` 正常/Ctrl+C，`1` 环境不满足，`2` 主机采集器启动失败（网卡、地址、端口或采样间隔配置问题，原因打印在 stderr）。启动成功会打印实际使用的网卡地址、广播目标与采样间隔，例如：
 
 ```text
-有线网卡：enP8p1s0 (192.168.10.14)；UDP 广播：192.168.10.255:8765；采样间隔：1 秒。按 Ctrl+C 停止。
+有线网卡：enP8p1s0 (192.168.10.14)；UDP 广播：192.168.10.255:8765；采样间隔：1 秒；身份：Orin NX/Orin nvgpu/16G。按 Ctrl+C 停止。
 ```
 
 > 上面的 IP 只是示例。程序按网卡默认网关推导子网广播地址，不写死网段；广播地址必须属于该网卡的 IPv4 子网。
@@ -282,7 +283,8 @@ pc_partner/
 │  ├─ config.py             # 网卡、端口、采样间隔配置
 │  ├─ collectors.py         # CPU/GPU/内存/网卡速率采集
 │  ├─ broadcaster.py        # 子网广播地址计算与 UDP 发送
-│  ├─ protocol.py           # v1 JSON 指标包编解码与校验
+│  ├─ protocol.py           # v2 JSON 指标包编解码与校验
+│  ├─ labels.py             # CPU/GPU/RAM 身份标签探测与环境变量覆盖
 │  └─ host.py               # 主程序入口（python -m pc_metrics.host）
 ├─ pico/                    # 本地密钥配置（不纳入版本库）
 │  ├─ README.md             # 密钥文件创建说明
@@ -310,11 +312,11 @@ pc_partner/
 
 ## UDP 协议
 
-主机稳态约每秒发送一个 UTF-8 JSON 数据包（紧凑格式），字段固定为 8 个：
+主机稳态约每秒发送一个 UTF-8 JSON 数据包（紧凑格式），字段固定为 11 个（**仅支持 v2**；旧版 v1 包会被固件丢弃）：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `v` | int | 协议版本，固定为 `1` |
+| `v` | int | 协议版本，固定为 `2` |
 | `seq` | int | 序号，从 0 递增，仅在发送成功后加一 |
 | `ts` | int | 采样时间，Unix 秒 |
 | `cpu` | number | CPU 使用率 0–100 |
@@ -322,14 +324,17 @@ pc_partner/
 | `ram` | number | 内存占用率 0–100 |
 | `rx` | number | 有线网卡接收速率，MB/s |
 | `tx` | number | 有线网卡发送速率，MB/s |
+| `cpu_label` | string | CPU 身份短文案，可打印 ASCII，1–16 字节 |
+| `gpu_label` | string | GPU 身份短文案，可打印 ASCII，1–16 字节 |
+| `ram_label` | string | 内存档位短文案（如 `16G`），可打印 ASCII，1–16 字节 |
 
 示例：
 
 ```json
-{"v":1,"seq":42,"ts":1793713669,"cpu":16.0,"gpu":38.0,"ram":57.0,"rx":0.1,"tx":0.0}
+{"v":2,"seq":42,"ts":1793713669,"cpu":16.0,"gpu":null,"ram":57.0,"rx":0.1,"tx":0.0,"cpu_label":"Orin NX","gpu_label":"Orin nvgpu","ram_label":"16G"}
 ```
 
-约束：数据包不超过 512 字节；`cpu`/`gpu`/`ram` 限定 0–100，`seq`/`ts`/`rx`/`tx` 只校验下界（`seq >= 0`、`ts >= 1`、速率非负），允许任意大的正数。主机生产路径只做编码；`pc_metrics.protocol.decode_packet` 供测试与诊断使用，拒绝重复字段、`NaN`/`Infinity`、多余或缺失字段与上述越界数值，并单独报告重复字段名。Pico 端会丢弃重复序号、明显过期以及校验失败的包。
+约束：数据包不超过 512 字节；`cpu`/`gpu`/`ram` 限定 0–100，`seq`/`ts`/`rx`/`tx` 只校验下界（`seq >= 0`、`ts >= 1`、速率非负），允许任意大的正数；三个 `*_label` 必须为非空可打印 ASCII 且不超过 16 字节。主机启动时自动探测标签（可用 `PICO_*_LABEL` 覆盖；探测失败回退 `CPU`/`GPU`/`RAM`）。主机生产路径只做编码；`pc_metrics.protocol.decode_packet` 供测试与诊断使用，拒绝重复字段、`NaN`/`Infinity`、多余或缺失字段与上述越界数值，并单独报告重复字段名。Pico 端会丢弃非 v2、重复序号、明显过期以及校验失败的包。
 
 协议没有校验和/CRC，完整性依赖 UDP 报文本身与 JSON 字段严格校验；损坏或不合规的数据包会被直接丢弃，不会显示到屏幕。
 

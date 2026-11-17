@@ -8,6 +8,9 @@
 
 typedef enum { kUiModeDashboard = 0, kUiModeClock = 1 } UiMode;
 
+/** UDP v2 身份标签最大长度（不含结尾 NUL）。 */
+#define kPcMetricsLabelMax 16
+
 typedef struct {
   uint32_t seq;
   uint32_t ts;
@@ -17,6 +20,9 @@ typedef struct {
   float ram;
   float rx_mbps;
   float tx_mbps;
+  char cpu_label[kPcMetricsLabelMax + 1];
+  char gpu_label[kPcMetricsLabelMax + 1];
+  char ram_label[kPcMetricsLabelMax + 1];
 } PcMetricsData;
 
 typedef struct {

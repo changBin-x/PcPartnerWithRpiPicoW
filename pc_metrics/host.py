@@ -16,6 +16,7 @@ import psutil
 from pc_metrics import config
 from pc_metrics.broadcaster import get_broadcast_address, send_packet
 from pc_metrics.collectors import InterfaceNotFoundError, MetricsCollector
+from pc_metrics.labels import resolve_identity_labels
 from pc_metrics.protocol import encode_packet
 
 # Retry delays for consecutive sample/broadcast failures, capped at 30 seconds.
@@ -435,10 +436,14 @@ def run(
         return 2
 
     interval = float(config.SAMPLE_INTERVAL_SECONDS)
+    identity = resolve_identity_labels()
     print(
         f"有线网卡：{config.ETHERNET_INTERFACE} ({local_address})；"
         f"UDP 广播：{broadcast_address}:{config.UDP_PORT}；"
-        f"采样间隔：{interval:g} 秒。按 Ctrl+C 停止。"
+        f"采样间隔：{interval:g} 秒；"
+        f"身份：{identity['cpu_label']}/"
+        f"{identity['gpu_label']}/{identity['ram_label']}。"
+        "按 Ctrl+C 停止。"
     )
 
     try:
@@ -473,6 +478,9 @@ def run(
                         ram=sample["ram"],
                         rx=sample["rx"],
                         tx=sample["tx"],
+                        cpu_label=identity["cpu_label"],
+                        gpu_label=identity["gpu_label"],
+                        ram_label=identity["ram_label"],
                     )
                     send_packet(
                         udp_socket,

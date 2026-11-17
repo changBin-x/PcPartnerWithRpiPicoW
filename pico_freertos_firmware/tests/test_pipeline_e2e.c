@@ -46,8 +46,9 @@ int main(void) {
     return 1;
   }
   const char* packet =
-      "{\"v\":1,\"seq\":42,\"ts\":1700000000,\"cpu\":43.0,\"gpu\":0.0,"
-      "\"ram\":61.0,\"rx\":1.2,\"tx\":0.4}";
+      "{\"v\":2,\"seq\":42,\"ts\":1700000000,\"cpu\":43.0,\"gpu\":0.0,"
+      "\"ram\":61.0,\"rx\":1.2,\"tx\":0.4,"
+      "\"cpu_label\":\"CPU\",\"gpu_label\":\"GPU\",\"ram_label\":\"16G\"}";
   MetricsParser parser;
   metrics_parser_init(&parser);
   PcMetricsData data;

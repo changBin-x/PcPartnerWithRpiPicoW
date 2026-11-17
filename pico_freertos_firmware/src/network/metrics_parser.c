@@ -1,23 +1,25 @@
 /**
  * @file metrics_parser.c
- * @brief UDP 指标 JSON 协议（协议版本 1）的严格校验解析器。
+ * @brief UDP 指标 JSON 协议（协议版本 2）的严格校验解析器。
  *
- * 期望载荷（8 个字段全部必填，"gpu" 允许为 null）：
- *   {"v":1,"seq":1,"ts":1700000000,"cpu":25.4,
- *    "gpu":48.0,"ram":65.2,"rx":10.5,"tx":2.1}
+ * 期望载荷（11 个字段全部必填，"gpu" 允许为 null）：
+ *   {"v":2,"seq":1,"ts":1700000000,"cpu":25.4,
+ *    "gpu":48.0,"ram":65.2,"rx":10.5,"tx":2.1,
+ *    "cpu_label":"Orin NX","gpu_label":"Orin nvgpu","ram_label":"16G"}
  *
- * 解析策略刻意从严：协议版本未知、字段缺失、数值越界、序号非递增，
+ * 解析策略刻意从严：协议版本未知、字段缺失、数值越界、标签非法、序号非递增，
  * 或报文尾部夹带非空白字节的报文一律拒绝。
  */
 
 #include "metrics_parser.h"
 
 #include <float.h>
+#include <string.h>
 
 #include "cJSON.h"
 
 /* 本解析器支持的协议版本。 */
-#define kMetricsProtocolVersion 1
+#define kMetricsProtocolVersion 2
 
 /* 百分比类字段可接受的闭区间浮点范围。 */
 #define kMetricsPercentMin 0.0
@@ -110,6 +112,37 @@ static bool read_mbps(const cJSON* item, float* out_value) {
   return true;
 }
 
+/*
+ * 读取必填身份标签：1..kPcMetricsLabelMax 字节的可打印 ASCII。
+ * 拒绝空串、超长、控制字符与非 ASCII。
+ */
+static bool read_label(const cJSON* item, char* out_value) {
+  const char* text;
+  size_t length;
+  size_t index;
+
+  if (!cJSON_IsString(item) || (item->valuestring == NULL)) {
+    return false;
+  }
+
+  text = item->valuestring;
+  length = strlen(text);
+  if ((length == 0U) || (length > (size_t)kPcMetricsLabelMax)) {
+    return false;
+  }
+
+  for (index = 0U; index < length; ++index) {
+    const unsigned char code = (unsigned char)text[index];
+    if ((code < 0x20U) || (code > 0x7EU)) {
+      return false;
+    }
+  }
+
+  memcpy(out_value, text, length);
+  out_value[length] = '\0';
+  return true;
+}
+
 void metrics_parser_init(MetricsParser* parser) {
   if (parser == NULL) {
     return;
@@ -131,6 +164,9 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
   cJSON* item_ram = NULL;
   cJSON* item_rx = NULL;
   cJSON* item_tx = NULL;
+  cJSON* item_cpu_label = NULL;
+  cJSON* item_gpu_label = NULL;
+  cJSON* item_ram_label = NULL;
   const char* parse_end = NULL;
   PcMetricsData parsed = {0};
   MetricsParseResult result = kMetricsParseOk;
@@ -157,11 +193,15 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
   item_ram = cJSON_GetObjectItemCaseSensitive(root, "ram");
   item_rx = cJSON_GetObjectItemCaseSensitive(root, "rx");
   item_tx = cJSON_GetObjectItemCaseSensitive(root, "tx");
+  item_cpu_label = cJSON_GetObjectItemCaseSensitive(root, "cpu_label");
+  item_gpu_label = cJSON_GetObjectItemCaseSensitive(root, "gpu_label");
+  item_ram_label = cJSON_GetObjectItemCaseSensitive(root, "ram_label");
 
-  /* 协议 v1 的 8 个字段必须齐全（gpu 允许为 JSON null）。 */
+  /* 协议 v2 的 11 个字段必须齐全（gpu 允许为 JSON null）。 */
   if ((item_v == NULL) || (item_seq == NULL) || (item_ts == NULL) ||
       (item_cpu == NULL) || (item_gpu == NULL) || (item_ram == NULL) ||
-      (item_rx == NULL) || (item_tx == NULL)) {
+      (item_rx == NULL) || (item_tx == NULL) || (item_cpu_label == NULL) ||
+      (item_gpu_label == NULL) || (item_ram_label == NULL)) {
     result = kMetricsErrMissingField;
     goto cleanup;
   }
@@ -216,6 +256,13 @@ MetricsParseResult metrics_parser_parse(MetricsParser* parser,
   }
 
   if (!read_mbps(item_tx, &parsed.tx_mbps)) {
+    result = kMetricsErrInvalidValue;
+    goto cleanup;
+  }
+
+  if (!read_label(item_cpu_label, parsed.cpu_label) ||
+      !read_label(item_gpu_label, parsed.gpu_label) ||
+      !read_label(item_ram_label, parsed.ram_label)) {
     result = kMetricsErrInvalidValue;
     goto cleanup;
   }

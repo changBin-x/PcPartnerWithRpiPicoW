@@ -78,8 +78,9 @@ int main(void) {
   metrics_parser_init(&parser);
   PcMetricsData metrics;
   static const char kPacket[] =
-      "{\"v\":1,\"seq\":7,\"ts\":1762400000,\"cpu\":50,\"gpu\":null,"
-      "\"ram\":40,\"rx\":1,\"tx\":2}";
+      "{\"v\":2,\"seq\":7,\"ts\":1762400000,\"cpu\":50,\"gpu\":null,"
+      "\"ram\":40,\"rx\":1,\"tx\":2,"
+      "\"cpu_label\":\"CPU\",\"gpu_label\":\"GPU\",\"ram_label\":\"16G\"}";
   assert(metrics_parser_parse(&parser, kPacket, sizeof(kPacket) - 1,
                               &metrics) == kMetricsParseOk);
   assert(metrics_parser_parse(&parser, kPacket, sizeof(kPacket) - 1,
