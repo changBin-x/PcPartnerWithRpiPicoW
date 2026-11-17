@@ -69,7 +69,10 @@ static void fill_snapshot(SystemSnapshot* snap) {
                                                .gpu_valid = false,
                                                .ram = 61.0f,
                                                .rx_mbps = 1.2f,
-                                               .tx_mbps = 0.4f},
+                                               .tx_mbps = 0.4f,
+                                               .cpu_label = "CPU",
+                                               .gpu_label = "GPU",
+                                               .ram_label = "16G"},
                               1000);
   system_state_update_clock(&(ClockData){.year = 2026,
                                          .month = 11,

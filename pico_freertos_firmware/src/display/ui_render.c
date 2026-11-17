@@ -241,6 +241,11 @@ static void swiss_top(const UiSurface* s, const SystemSnapshot* snap,
   gfx_fill(s, 0, 13, kUiScreenWidth, 1, p->line);
 }
 
+/** @brief 取主机身份标签；空串时回退到中性占位。 */
+static const char* metric_label(const char* value, const char* fallback) {
+  return (value != NULL && value[0] != '\0') ? value : fallback;
+}
+
 /** @brief 瑞士流：一行指标（标签 + 标签胶囊 + 24 px 大数值）。 */
 static void swiss_item(const UiSurface* s, int y, const char* label,
                        float value, bool active, const UiThemePalette* p) {
@@ -249,9 +254,10 @@ static void swiss_item(const UiSurface* s, int y, const char* label,
   uint16_t tag_bg = active ? p->surface_hi : p->surface;
   uint16_t tag_fg = active ? p->accent : p->dim;
   int tag_w = ui_font_width(8, tag);
-  text_at(s, 6, y + 2, 8, p->muted, p->bg, label);
-  gfx_fill(s, 122 - tag_w - 6, y + 1, tag_w + 6, 11, tag_bg);
-  text_at(s, 122 - tag_w - 3, y + 2, 8, tag_fg, tag_bg, tag);
+  int tag_left = 122 - tag_w - 6;
+  text_fit(s, 6, y + 2, 8, tag_left - 2, p->muted, p->bg, label);
+  gfx_fill(s, tag_left, y + 1, tag_w + 6, 11, tag_bg);
+  text_at(s, tag_left + 3, y + 2, 8, tag_fg, tag_bg, tag);
   format_percent(value, active, buf, sizeof buf);
   text_at(s, 6, y + 9, 24, active ? p->accent : p->dim, p->bg, buf);
   text_at(s, 6 + ui_font_width(24, buf) + 2, y + 25, 9, p->muted, p->bg, "%");
@@ -267,11 +273,13 @@ static void swiss_page_a(const UiSurface* s, const SystemSnapshot* snap,
   gfx_clear(s, p->bg);
   swiss_top(s, snap, p);
   bool online = snap->pc_online;
-  /* 标签不写死机型/容量：UDP 协议只传占用率，Windows 与 Orin 共用同一固件。 */
-  swiss_item(s, 14, "CPU", snap->metrics.cpu, online, p);
-  swiss_item(s, 57, "GPU", snap->metrics.gpu,
-             online && snap->metrics.gpu_valid, p);
-  swiss_item(s, 100, "内存", snap->metrics.ram, online, p);
+  /* 身份文案来自 UDP v2 的 cpu/gpu/ram_label，随上位机变化。 */
+  swiss_item(s, 14, metric_label(snap->metrics.cpu_label, "CPU"),
+             snap->metrics.cpu, online, p);
+  swiss_item(s, 57, metric_label(snap->metrics.gpu_label, "GPU"),
+             snap->metrics.gpu, online && snap->metrics.gpu_valid, p);
+  swiss_item(s, 100, metric_label(snap->metrics.ram_label, "RAM"),
+             snap->metrics.ram, online, p);
   format_rate(snap->metrics.rx_mbps, online, rx, sizeof rx);
   format_rate(snap->metrics.tx_mbps, online, tx, sizeof tx);
   snprintf(buf, sizeof buf, "下行%s", rx);
@@ -364,7 +372,11 @@ static void tui_page_a(const UiSurface* s, const SystemSnapshot* snap,
   tui_header(s, value, snap->pc_online ? "在线" : "未连", p);
 
   int y = 16;
-  const char* labels[3] = {"[CPU] ", "[GPU] ", "[内存] "};
+  const char* labels[3] = {
+      metric_label(snap->metrics.cpu_label, "CPU"),
+      metric_label(snap->metrics.gpu_label, "GPU"),
+      metric_label(snap->metrics.ram_label, "RAM"),
+  };
   const char* states[3] = {"稳定", "休眠", "负荷"};
   float values[3] = {snap->metrics.cpu, snap->metrics.gpu, snap->metrics.ram};
   bool valid[3] = {snap->pc_online, snap->pc_online && snap->metrics.gpu_valid,
@@ -372,7 +384,7 @@ static void tui_page_a(const UiSurface* s, const SystemSnapshot* snap,
   for (int i = 0; i < 3; ++i) {
     char line[64];
     format_percent1(values[i], valid[i], value, sizeof value);
-    snprintf(line, sizeof line, "%s%s%%", labels[i], value);
+    snprintf(line, sizeof line, "[%s] %s%%", labels[i], value);
     uint16_t fg = valid[i] ? (i == 1 ? p->dim : p->fg) : p->dim;
     text_at(s, 5, y, 8, fg, p->bg, line);
     text_right(s, 123, y, 8, fg, p->bg, states[i]);
@@ -470,9 +482,10 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
     int y = 13;
     bento_tile(s, x, y, tile_w, tile_h, p);
     bool valid = snap->pc_online && (i == 0 || snap->metrics.gpu_valid);
-    const char* name = (i == 0) ? "CPU" : "GPU";
+    const char* name = (i == 0) ? metric_label(snap->metrics.cpu_label, "CPU")
+                                : metric_label(snap->metrics.gpu_label, "GPU");
     uint16_t color = valid ? ((i == 0) ? p->accent_2 : p->dim) : p->dim;
-    text_at(s, x + 4, y + 3, 8, p->muted, p->surface, name);
+    text_fit(s, x + 4, y + 3, 8, x + tile_w - 28, p->muted, p->surface, name);
     format_percent(i == 0 ? snap->metrics.cpu : snap->metrics.gpu, valid, value,
                    sizeof value);
     snprintf(buf, sizeof buf, "%s%%", value);
@@ -488,7 +501,8 @@ static void bento_page_a(const UiSurface* s, const SystemSnapshot* snap,
   int wide_y = 13 + tile_h + 3;
   gfx_round_fill(s, 3, wide_y, 122, 40, 3, p->surface_hi);
   gfx_round_fill(s, 4, wide_y + 1, 120, 38, 2, p->surface);
-  text_at(s, 9, wide_y + 3, 8, p->muted, p->surface, "系统内存占用率");
+  text_fit(s, 9, wide_y + 3, 8, 90, p->muted, p->surface,
+           metric_label(snap->metrics.ram_label, "RAM"));
   format_percent(snap->metrics.ram, snap->pc_online, value, sizeof value);
   snprintf(buf, sizeof buf, "%s%%", value);
   text_right(s, 119, wide_y + 3, 8, p->accent, p->surface, buf);
@@ -575,7 +589,7 @@ static void bento_page_b(const UiSurface* s, const SystemSnapshot* snap,
 static void scope_row(const UiSurface* s, int y, const char* tag, float value,
                       bool valid, uint16_t color, const UiThemePalette* p) {
   char buf[8];
-  text_at(s, 4, y + 3, 8, p->muted, p->bg, tag);
+  text_fit(s, 4, y + 3, 8, 50, p->muted, p->bg, tag);
   format_percent(value, valid, buf, sizeof buf);
   text_at(s, 4, y + 14, 14, valid ? color : p->dim, p->bg, buf);
   gfx_fill(s, 52, y + 4, 72, 36, p->surface);
@@ -609,10 +623,13 @@ static void scope_page_a(const UiSurface* s, const SystemSnapshot* snap,
   text_right(s, 124, 1, 8, p->muted, p->surface_hi,
              snap->pc_online ? "自动触发" : "无信号");
 
-  scope_row(s, 12, "CPU", snap->metrics.cpu, snap->pc_online, p->accent, p);
-  scope_row(s, 56, "GPU", snap->metrics.gpu,
-            snap->pc_online && snap->metrics.gpu_valid, p->muted, p);
-  scope_row(s, 100, "内存", snap->metrics.ram, snap->pc_online, p->warn, p);
+  scope_row(s, 12, metric_label(snap->metrics.cpu_label, "CPU"),
+            snap->metrics.cpu, snap->pc_online, p->accent, p);
+  scope_row(s, 56, metric_label(snap->metrics.gpu_label, "GPU"),
+            snap->metrics.gpu, snap->pc_online && snap->metrics.gpu_valid,
+            p->muted, p);
+  scope_row(s, 100, metric_label(snap->metrics.ram_label, "RAM"),
+            snap->metrics.ram, snap->pc_online, p->warn, p);
 
   char rx[24];
   char tx[24];
@@ -717,12 +734,13 @@ static void hud_page_a(const UiSurface* s, const SystemSnapshot* snap,
   snprintf(buf, sizeof buf, "战术抬头 %02d:%02d:%02d", snap->clock.hour,
            snap->clock.minute, snap->clock.second);
   hud_top(s, buf, snap->pc_online ? "联机" : "未连", p);
-  hud_item(s, 16, "[01]", "CPU 处理器", snap->metrics.cpu, snap->pc_online,
-           p->accent, p);
-  hud_item(s, 60, "[02]", "GPU 显卡", snap->metrics.gpu,
-           snap->pc_online && snap->metrics.gpu_valid, p->muted, p);
-  hud_item(s, 104, "[03]", "内存堆栈", snap->metrics.ram, snap->pc_online,
-           p->accent_2, p);
+  hud_item(s, 16, "[01]", metric_label(snap->metrics.cpu_label, "CPU"),
+           snap->metrics.cpu, snap->pc_online, p->accent, p);
+  hud_item(s, 60, "[02]", metric_label(snap->metrics.gpu_label, "GPU"),
+           snap->metrics.gpu, snap->pc_online && snap->metrics.gpu_valid,
+           p->muted, p);
+  hud_item(s, 104, "[03]", metric_label(snap->metrics.ram_label, "RAM"),
+           snap->metrics.ram, snap->pc_online, p->accent_2, p);
 
   char rx[24];
   char tx[24];

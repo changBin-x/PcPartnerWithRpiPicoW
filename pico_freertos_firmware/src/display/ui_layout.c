@@ -57,14 +57,17 @@ int ui_layout_calculate_dirty_regions(const SystemSnapshot* prev,
           prev->pc_online != curr->pc_online) {
         push_rect(out_rects, max_rects, &count, 0, 0, 128, 16); /* 顶栏 */
       }
-      if (prev->metrics.cpu != curr->metrics.cpu) {
+      if (prev->metrics.cpu != curr->metrics.cpu ||
+          strcmp(prev->metrics.cpu_label, curr->metrics.cpu_label) != 0) {
         push_rect(out_rects, max_rects, &count, 4, 20, 120, 32); /* CPU 卡片 */
       }
       if (prev->metrics.gpu != curr->metrics.gpu ||
-          prev->metrics.gpu_valid != curr->metrics.gpu_valid) {
+          prev->metrics.gpu_valid != curr->metrics.gpu_valid ||
+          strcmp(prev->metrics.gpu_label, curr->metrics.gpu_label) != 0) {
         push_rect(out_rects, max_rects, &count, 4, 56, 120, 32); /* GPU 卡片 */
       }
-      if (prev->metrics.ram != curr->metrics.ram) {
+      if (prev->metrics.ram != curr->metrics.ram ||
+          strcmp(prev->metrics.ram_label, curr->metrics.ram_label) != 0) {
         push_rect(out_rects, max_rects, &count, 4, 92, 120, 32); /* RAM 卡片 */
       }
       if (prev->metrics.rx_mbps != curr->metrics.rx_mbps ||
