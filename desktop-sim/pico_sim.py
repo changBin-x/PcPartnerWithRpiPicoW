@@ -218,7 +218,10 @@ def start_sender(pause_event: threading.Event) -> threading.Thread:
             f"{identity['cpu_label']}/{identity['gpu_label']}/"
             f"{identity['ram_label']}")
         while True:
-            pause_event.wait()
+            # 带超时的等待：暂停时仍会周期性醒来，F 键状态可被观察，
+            # 也能避免旧版「暂停后永久阻塞」的隐性问题。
+            while not pause_event.wait(timeout=0.5):
+                pass
             try:
                 sample = collector.sample()
             except Exception as exc:  # 网卡暂时消失等场景：等一拍再试
