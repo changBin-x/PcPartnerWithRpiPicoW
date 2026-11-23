@@ -32,6 +32,7 @@ pico_freertos_firmware/include/firmware_secrets.h
 
 # 临时渲染与预览目录
 .tmp/
+.temp/
 pico_freertos_firmware/preview.ppm
 pico_freertos_firmware/tests/render_preview.c
 
