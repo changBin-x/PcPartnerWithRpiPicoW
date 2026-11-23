@@ -397,3 +397,5 @@ C 固件使用的 `pico_freertos_firmware/assets/font_cn.bin` 与 `pico_freertos
 - 高德开放平台 Web 服务：<https://lbs.amap.com/api/webservice/summary>
 - 高德天气查询：<https://lbs.amap.com/api/webservice/guide/api/weatherinfo>
 - 香港天文台开放数据（农历）：<https://www.hko.gov.hk/sc/abouthko/opendata_intro.htm>
+
+> AI生成
