@@ -42,6 +42,11 @@ typedef struct {
   bool valid;
 } LunarData;
 
+/** 每秒指标历史槽数（与 1Hz UDP 指标包节奏对齐，约 24 秒趋势）。 */
+#define kMetricHistorySlots 24
+/** 历史槽未写入时的占位值（区别于合法的 0%）。 */
+#define kMetricHistoryInvalid 0xFFu
+
 typedef struct {
   char city[32];
   char weather[32];
@@ -60,6 +65,17 @@ typedef struct {
   LunarData lunar;
   WeatherData weather;
   uint32_t last_pc_metric_tick;
+  /** 每秒一次的 CPU 历史环形缓冲（0..100，或 kMetricHistoryInvalid）。
+   *  由 system_state 按秒推进，供示波流波形等需要趋势的界面消费。 */
+  uint8_t cpu_history[kMetricHistorySlots];
+  uint8_t ram_history[kMetricHistorySlots];
+  /** 年 0..4095，月 1..12，日 1..31（公历）。 */
+  uint16_t history_year;
+  uint8_t history_month;
+  uint8_t history_day;
+  /** ring_next：下一个写入槽位（0..kMetricHistorySlots-1）。 */
+  uint8_t history_next;
+  bool history_valid;
 } SystemSnapshot;
 
 void system_state_init(void);

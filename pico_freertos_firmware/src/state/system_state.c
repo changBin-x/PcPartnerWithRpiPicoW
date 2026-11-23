@@ -76,20 +76,42 @@ void system_state_init(void) {
   s_global_snapshot.theme_id = kThemeSwiss;
   s_global_snapshot.pc_online = false;
   s_global_snapshot.wifi_connected = false;
+  memset(s_global_snapshot.cpu_history, kMetricHistoryInvalid,
+         sizeof(s_global_snapshot.cpu_history));
+  memset(s_global_snapshot.ram_history, kMetricHistoryInvalid,
+         sizeof(s_global_snapshot.ram_history));
+  s_global_snapshot.history_valid = false;
   STATE_UNLOCK();
 }
 
 void system_state_update_metrics(const PcMetricsData* metrics,
-                                 uint32_t current_tick) {
+                                  uint32_t current_tick) {
   if (metrics == NULL) {
     return;
   }
+
+  /* 秒级历史：每个合法包落一个槽（1Hz 包节奏即 24 秒趋势）。越界值
+   * 落 kMetricHistoryInvalid 占位，供波形层区分「无数据」与「0%」。 */
+  const uint8_t clamped_cpu =
+      (metrics->cpu >= 0.0f && metrics->cpu <= 100.0f)
+          ? (uint8_t)(metrics->cpu + 0.5f)
+          : kMetricHistoryInvalid;
+  const uint8_t clamped_ram =
+      (metrics->ram >= 0.0f && metrics->ram <= 100.0f)
+          ? (uint8_t)(metrics->ram + 0.5f)
+          : kMetricHistoryInvalid;
 
   STATE_LOCK();
   s_global_snapshot.metrics = *metrics;
   s_global_snapshot.last_pc_metric_tick = current_tick;
   s_global_snapshot.pc_online = true;
   s_global_snapshot.ui_mode = kUiModeDashboard;
+
+  s_global_snapshot.cpu_history[s_global_snapshot.history_next] = clamped_cpu;
+  s_global_snapshot.ram_history[s_global_snapshot.history_next] = clamped_ram;
+  s_global_snapshot.history_next =
+      (uint8_t)((s_global_snapshot.history_next + 1u) % kMetricHistorySlots);
+  s_global_snapshot.history_valid = true;
   STATE_UNLOCK();
 }
 
@@ -100,6 +122,9 @@ void system_state_update_clock(const ClockData* clock) {
 
   STATE_LOCK();
   s_global_snapshot.clock = *clock;
+  s_global_snapshot.history_year = (uint16_t)clock->year;
+  s_global_snapshot.history_month = (uint8_t)clock->month;
+  s_global_snapshot.history_day = (uint8_t)clock->day;
   STATE_UNLOCK();
 }
 

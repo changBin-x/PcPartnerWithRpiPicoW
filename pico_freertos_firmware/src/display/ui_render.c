@@ -613,9 +613,20 @@ static void bento_page_b(const UiSurface* s, const SystemSnapshot* snap,
 
 /* --------------------------------------------------------- 流派四：工业示波 */
 
-/** @brief 示波：一条指标行（左侧数值 + 右侧 72×36 波形框）。 */
+/** @brief 从环形历史取第 sample_idx 新的采样（0 = 最新）。
+ *  next 指向最旧待写槽；越新的采样越靠近 next 的前一格。 */
+static uint8_t history_nth(const uint8_t* history, uint8_t next,
+                           int sample_idx) {
+  const int slot =
+      (next - 1 - sample_idx + kMetricHistorySlots * 2) % kMetricHistorySlots;
+  return history[slot];
+}
+
+/** @brief 示波：一条指标行（左侧数值 + 右侧 72x36 波形框）。 */
 static void scope_row(const UiSurface* s, int y, const char* tag, float value,
-                      bool valid, uint16_t color, const UiThemePalette* p) {
+                      bool valid, uint16_t color, const UiThemePalette* p,
+                      const uint8_t* history, uint8_t history_next,
+                      bool history_valid) {
   char buf[8];
   text_fit(s, 4, y + 3, 8, 50, p->muted, p->bg, tag);
   format_percent(value, valid, buf, sizeof buf);
@@ -623,21 +634,41 @@ static void scope_row(const UiSurface* s, int y, const char* tag, float value,
   gfx_fill(s, 52, y + 4, 72, 36, p->surface);
   gfx_grid(s, 52, y + 4, 72, 36, p->grid, 12);
   gfx_stroke(s, 52, y + 4, 72, 36, p->line);
-  /* 波形：以当前值决定振幅的固定锯齿，避免引入历史缓冲。 */
-  int16_t points[16];
-  int amplitude = valid ? (int)(value * 0.12f) : 2;
-  if (amplitude < 2) {
-    amplitude = 2;
+  /* 波形：真实历史采样点连折线（每 2 秒取 1 点共 12 点 ≈ 24 秒趋势），
+   * 从旧到新、从左到右；无历史/无包时退化为当前值定振幅的锯齿占位。 */
+  int16_t points[14];
+  const int center = y + 22;
+  int drawn = 0;
+  if (history != NULL && history_valid && valid) {
+    for (int i = 0; i < 12; ++i) {
+      /* i=0 最旧（sample_idx 从 22 递减到 2）；i=11 最新前一个。 */
+      const uint8_t sample = history_nth(history, history_next, 2 + (11 - i) * 2);
+      if (sample == kMetricHistoryInvalid) {
+        continue;
+      }
+      const int amp = (int)sample * 16 / 100;
+      points[drawn * 2] = (int16_t)(54 + drawn * 5);
+      points[drawn * 2 + 1] = (int16_t)(center - amp);
+      ++drawn;
+    }
   }
-  for (int i = 0; i < 8; ++i) {
-    points[i * 2] = (int16_t)(53 + i * 10);
-    points[i * 2 + 1] =
-        (int16_t)(y + 22 + ((i % 2 == 0) ? -amplitude : amplitude));
+  if (drawn >= 2) {
+    gfx_polyline(s, points, drawn, valid ? color : p->dim);
+  } else {
+    /* 无历史：保持占位锯齿（含 GPU：协议无 GPU 历史通道）。 */
+    int amplitude = valid ? (int)(value * 0.12f) : 2;
+    if (amplitude < 2) {
+      amplitude = 2;
+    }
+    for (int i = 0; i < 8; ++i) {
+      points[i * 2] = (int16_t)(53 + i * 10);
+      points[i * 2 + 1] =
+          (int16_t)(y + 22 + ((i % 2 == 0) ? -amplitude : amplitude));
+    }
+    gfx_polyline(s, points, 8, valid ? color : p->dim);
   }
-  gfx_polyline(s, points, 8, valid ? color : p->dim);
   gfx_fill(s, 0, y + 44, kUiScreenWidth, 1, p->line);
 }
-
 /** @brief 示波：页面 A（三通道监控）。 */
 static void scope_page_a(const UiSurface* s, const SystemSnapshot* snap,
                           const UiThemePalette* p) {
@@ -661,10 +692,13 @@ static void scope_page_a(const UiSurface* s, const SystemSnapshot* snap,
                       "GPU:", snap->metrics.gpu_label, "GPU");
   format_metric_title(ram_title, sizeof ram_title,
                       "内存:", snap->metrics.ram_label, "RAM");
-  scope_row(s, 12, cpu_title, snap->metrics.cpu, snap->pc_online, p->accent, p);
+  scope_row(s, 12, cpu_title, snap->metrics.cpu, snap->pc_online, p->accent, p,
+            snap->cpu_history, snap->history_next, snap->history_valid);
   scope_row(s, 56, gpu_title, snap->metrics.gpu,
-            snap->pc_online && snap->metrics.gpu_valid, p->muted, p);
-  scope_row(s, 100, ram_title, snap->metrics.ram, snap->pc_online, p->warn, p);
+            snap->pc_online && snap->metrics.gpu_valid, p->muted, p,
+            NULL, 0, false); /* 协议无 GPU 历史通道，走锯齿占位 */
+  scope_row(s, 100, ram_title, snap->metrics.ram, snap->pc_online, p->warn, p,
+            snap->ram_history, snap->history_next, snap->history_valid);
 
   char rx[24];
   char tx[24];
