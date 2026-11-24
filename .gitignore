@@ -13,7 +13,9 @@ docs/PROJECT_HANDOFF.md
 AGENTS.md
 CONTEXT.md
 .dsh-vision-router
-
+.scratch/
+.mcp/
+.temp/
 # 固件构建产物
 pico_freertos_firmware/tests/build/
 pico_freertos_firmware/tests/build_*/
