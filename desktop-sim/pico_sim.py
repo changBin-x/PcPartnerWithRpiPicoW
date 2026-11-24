@@ -293,7 +293,7 @@ def blit_panel(dll, screen, x: int, y: int, mode: int) -> None:
     screen.blit(pygame.transform.scale(surface, PANEL_SIZE), (x, y))
 
 
-def draw_hud(dll, screen, font, small, paused: bool) -> None:
+def draw_hud(dll, screen, font, small, paused: bool, focused: bool) -> None:
     """底部提示栏：主题序号徽章 + 按键说明，当前主题高亮."""
     bar = pygame.Rect(0, PANEL_SIZE[1], PYGAME_SIZE[0],
                       PYGAME_SIZE[1] - PANEL_SIZE[1])
@@ -304,16 +304,21 @@ def draw_hud(dll, screen, font, small, paused: bool) -> None:
     x = 16
     for i, name in enumerate(THEME_NAMES):
         active = i == current
-        badge_bg = (45, 212, 191) if active else (30, 38, 50)
-        badge_fg = (10, 14, 20) if active else (125, 138, 154)
+        badge_bg = (45, 212, 191) if (active and focused) else (30, 38, 50)
+        badge_fg = (10, 14, 20) if (active and focused) else (125, 138, 154)
         tag = f"{i + 1} {name}"
         chip = pygame.Surface((font.size(tag)[0] + 18, 30))
         chip.fill(badge_bg)
         screen.blit(chip, (x, bar.top + 10))
         screen.blit(font.render(tag, True, badge_fg), (x + 9, bar.top + 17))
         x += font.size(tag)[0] + 18 + 8
-    hint = f"1-5 直选主题 · T 轮换 · F 暂停/恢复指标（3 秒断流演示） · ESC 退出"
-    screen.blit(small.render(hint, True, (125, 138, 154)),
+    if focused:
+        hint = "1-5 直选主题 · T 轮换 · F 暂停/恢复指标（3 秒断流演示） · ESC 退出"
+        hint_color = (125, 138, 154)
+    else:
+        hint = "键盘未接管：先点击本窗口任意位置，再按 1-5 / T / F"
+        hint_color = (245, 166, 35)
+    screen.blit(small.render(hint, True, hint_color),
                 (16, bar.top + 52))
     if paused:
         warn = "⏸ 指标广播已暂停：右面板看真实超时切页效果"
@@ -349,11 +354,19 @@ def main() -> int:
     clock = pygame.time.Clock()
     running = True
     title_at = 0.0
+    focused = False  # 键盘焦点跟踪：失焦时高亮提示用户先点击窗口
+    ev_focus_gained = getattr(pygame, "WINDOWFOCUSGAINED", None)
+    ev_focus_lost = getattr(pygame, "WINDOWFOCUSLOST", None)
+    last_focus_log = None
     while running:
         paused = not pause_event.is_set()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif ev_focus_gained is not None and event.type == ev_focus_gained:
+                focused = True
+            elif ev_focus_lost is not None and event.type == ev_focus_lost:
+                focused = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
@@ -381,8 +394,13 @@ def main() -> int:
         dll.sim_tick()
         blit_panel(dll, screen, 0, 0, 0)           # 左：仪表盘（固定页面 A）
         blit_panel(dll, screen, 512 + 24, 0, 1)    # 右：时钟页（固定页面 B）
-        draw_hud(dll, screen, font, small, paused)
+        draw_hud(dll, screen, font, small, paused, focused)
         pygame.display.flip()
+
+        # 焦点变化写一次日志，方便远程排查（只记变更）
+        if focused != last_focus_log:
+            last_focus_log = focused
+            log(f"键盘焦点：{'已接管' if focused else '已失去（按键将无效，需点击窗口）'}")
 
         now = time.time()
         if now - title_at >= 1.0:
