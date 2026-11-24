@@ -1748,3 +1748,5 @@ nm --size-sort -S pico_freertos_firmware/build/pico_status_screen.elf | tail -20
 **类型一致性**：`UiThemeId` / `UiThemePalette` / `UiThemeToken` / `ThemePairRule`
 定义在任务 1，后续任务直接使用；`ThemeCommitOutcome` 由任务 4 定义、任务 7 映射，
 不与 `ThemeStorageResult` 混用；`ButtonFilter` 由任务 2 定义、任务 7 实例化。
+
+> AI生成

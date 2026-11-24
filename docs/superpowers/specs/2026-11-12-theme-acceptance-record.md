@@ -125,3 +125,5 @@ cmake --build pico_freertos_firmware/build -j
 
 抓帧脚本位于 `.tmp/cam/`（`shot.py` 单次抓帧、`burst.py` 连续抓帧、`onvif.py`
 相机成像参数）。`.tmp/` 已被 `.gitignore` 忽略，脚本不随仓库发布。
+
+> AI生成
