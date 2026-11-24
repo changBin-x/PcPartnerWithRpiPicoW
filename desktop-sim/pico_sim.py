@@ -10,7 +10,9 @@
 
 键盘：T = 切换主题（真实 theme_switch_advance）
       F = 暂停/恢复指标广播（演示真实 3 秒断流自动切页）
-      ESC = 退出
+      1-5 = 直选主题，ESC = 退出
+      Alt/Ctrl 组合的全局热键（Ctrl+Alt+1-5/T/F）在窗口失焦时也可用
+鼠标：点击底部主题徽章切主题，点击右侧按钮暂停/恢复（远程客户端最稳）
 """
 
 from __future__ import annotations
@@ -293,37 +295,132 @@ def blit_panel(dll, screen, x: int, y: int, mode: int) -> None:
     screen.blit(pygame.transform.scale(surface, PANEL_SIZE), (x, y))
 
 
-def draw_hud(dll, screen, font, small, paused: bool, focused: bool) -> None:
-    """底部提示栏：主题序号徽章 + 按键说明，当前主题高亮."""
+def draw_hud(dll, screen, font, small, paused: bool,
+             focused: bool) -> dict[str, pygame.Rect]:
+    """底部提示栏：主题徽章 + 暂停按钮 + 操作说明。
+
+    返回可点击区域（逻辑坐标），供鼠标点击交互使用——网页/远程云电脑
+    客户端下键盘焦点常被浏览器抢走，鼠标点击是更可靠的操作入口。
+    """
     bar = pygame.Rect(0, PANEL_SIZE[1], PYGAME_SIZE[0],
                       PYGAME_SIZE[1] - PANEL_SIZE[1])
     pygame.draw.rect(screen, (13, 17, 26), bar)
     pygame.draw.line(screen, (38, 48, 62), (0, bar.top),
                      (PYGAME_SIZE[0], bar.top), 2)
     current = dll.sim_current_theme()
+    hits: dict[str, pygame.Rect] = {}
     x = 16
     for i, name in enumerate(THEME_NAMES):
         active = i == current
-        badge_bg = (45, 212, 191) if (active and focused) else (30, 38, 50)
-        badge_fg = (10, 14, 20) if (active and focused) else (125, 138, 154)
+        # 当前主题始终高亮；键盘接管时更亮，便于分辨“选中”与“可输入”
+        badge_bg = ((45, 212, 191) if focused else (20, 150, 136)) \
+            if active else (30, 38, 50)
+        badge_fg = (10, 14, 20) if active else (125, 138, 154)
         tag = f"{i + 1} {name}"
-        chip = pygame.Surface((font.size(tag)[0] + 18, 30))
+        chip_w = font.size(tag)[0] + 18
+        rect = pygame.Rect(x, bar.top + 10, chip_w, 30)
+        chip = pygame.Surface((rect.width, rect.height))
         chip.fill(badge_bg)
-        screen.blit(chip, (x, bar.top + 10))
+        screen.blit(chip, rect.topleft)
         screen.blit(font.render(tag, True, badge_fg), (x + 9, bar.top + 17))
-        x += font.size(tag)[0] + 18 + 8
-    if focused:
-        hint = "1-5 直选主题 · T 轮换 · F 暂停/恢复指标（3 秒断流演示） · ESC 退出"
-        hint_color = (125, 138, 154)
-    else:
-        hint = "键盘未接管：先点击本窗口任意位置，再按 1-5 / T / F"
-        hint_color = (245, 166, 35)
-    screen.blit(small.render(hint, True, hint_color),
-                (16, bar.top + 52))
+        hits[f"theme:{i}"] = rect
+        x += chip_w + 8
+
+    btn_w = 128
+    # 暂停按钮紧跟徽章之后，保证所有可点击控件都在窗口左半侧（远程桌面
+    # 里窗口右缘常被浏览器等遮挡，点击会落到别的窗口上）。
+    btn = pygame.Rect(x + 12, bar.top + 10, btn_w, 30)
+    btn_bg = (245, 166, 35) if paused else (38, 48, 62)
+    btn_fg = (10, 14, 20) if paused else (185, 196, 210)
+    pygame.draw.rect(screen, btn_bg, btn)
+    label = "恢复广播" if paused else "暂停广播"
+    screen.blit(font.render(label, True, btn_fg),
+                (btn.centerx - font.size(label)[0] // 2, bar.top + 17))
+    hits["pause"] = btn
+
     if paused:
-        warn = "⏸ 指标广播已暂停：右面板看真实超时切页效果"
+        warn = "已暂停：右面板可看到 3 秒断流后自动切页"
         screen.blit(small.render(warn, True, (245, 166, 35)),
-                    (PYGAME_SIZE[0] - small.size(warn)[0] - 16, bar.top + 17))
+                    (btn.right + 16, bar.top + 17))
+
+    hint = ("点击徽章切主题 / 点击按钮暂停 · 键盘 1-5 T F ESC · "
+            "全局热键 Ctrl+Alt+1-5 T F")
+    hint_color = (125, 138, 154) if focused else (245, 166, 35)
+    if not focused:
+        hint = "键盘未接管（焦点在浏览器）：请点击徽章或按钮操作；" \
+               "也可用全局热键 Ctrl+Alt+1-5 / T / F"
+    screen.blit(small.render(hint, True, hint_color), (16, bar.top + 52))
+    return hits
+
+
+def start_global_hotkeys(cmd_queue: "queue.Queue[str]") -> bool:
+    """注册系统级热键 Ctrl+Alt+1-5 / T / F（不依赖窗口焦点）。
+
+    远程/网页云电脑客户端经常把键盘焦点留在浏览器侧，窗口内按键会
+    被其他程序消费；WM_HOTKEY 是系统级投递，只要云电脑系统收到键盘
+    输入就生效。
+
+    注意：WM_HOTKEY 只会投递到「调用 RegisterHotKey 的那个线程」的
+    消息队列，因此注册与 GetMessageW 必须发生在同一个线程里；跨线程
+    注册会导致消息被丢弃（已实测验证的坑）。
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT = 0x0001, 0x0002, 0x4000
+    WM_HOTKEY = 0x0312
+
+    bindings = {}
+    for i in range(1, 6):
+        bindings[100 + i] = f"theme:{i - 1}"
+    bindings[200] = "theme:next"   # T
+    bindings[201] = "pause"        # F
+    vk_map = {100 + i: 0x30 + i for i in range(1, 6)}
+    vk_map[200] = 0x54
+    vk_map[201] = 0x46
+
+    ready = threading.Event()
+    registered: list[int] = []
+
+    def work() -> None:
+        mods = MOD_ALT | MOD_CONTROL | MOD_NOREPEAT
+        for hk_id, cmd in bindings.items():
+            if user32.RegisterHotKey(None, hk_id, mods, vk_map[hk_id]):
+                registered.append(hk_id)
+        ready.set()
+        msg = wintypes.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            if msg.message == WM_HOTKEY:
+                cmd = bindings.get(int(msg.wParam))
+                if cmd:
+                    cmd_queue.put(cmd)
+
+    threading.Thread(target=work, name="hotkeys", daemon=True).start()
+    ready.wait(2.0)
+    if not registered:
+        log("全局热键注册失败：Ctrl+Alt+数字/T/F 不可用（可改用窗口内按键）")
+        return False
+    log(f"全局热键已注册 {len(registered)} 个（Ctrl+Alt+数字/T/F，"
+        f"窗口失焦也可用）")
+    return True
+
+
+def enable_dpi_awareness() -> None:
+    """声明 DPI 感知，配合 pygame.SCALED 让画面按真实像素渲染。
+
+    Windows 默认把 DPI 不感知的进程窗口按 150%/200% 拉伸（画面发虚），
+    且 SDL 拿到的鼠标坐标会与绘制坐标错位，导致“点了徽章却没反应”。
+    """
+    for call in (
+        lambda: ctypes.windll.shcore.SetProcessDpiAwareness(2),
+        lambda: ctypes.windll.user32.SetProcessDPIAware(),
+    ):
+        try:
+            call()
+            return
+        except Exception:
+            continue
 
 
 def main() -> int:
@@ -335,8 +432,20 @@ def main() -> int:
     global pygame
     import pygame  # 延迟导入：--selftest 路径不需要窗口栈
 
+    import queue
+
+    enable_dpi_awareness()
     pygame.init()
-    screen = pygame.display.set_mode(PYGAME_SIZE)
+    scaled = getattr(pygame, "SCALED", 0)
+    resizable = getattr(pygame, "RESIZABLE", 0)
+    try:
+        # SCALED：逻辑分辨率固定 1048x730，SDL 按窗口实际像素渲染并自动把
+        # 鼠标事件换算回逻辑坐标；RESIZABLE 允许拖动放大而画面/点击仍准确。
+        # 配合 DPI 感知，画面不再被系统 150% 拉伸（发虚）且点击不再错位。
+        screen = pygame.display.set_mode(
+            PYGAME_SIZE, scaled | resizable)
+    except pygame.error:
+        screen = pygame.display.set_mode(PYGAME_SIZE)
     pygame.display.set_caption("Pico W 状态屏仿真 · 双面板")
     font = pygame.font.SysFont("microsoftyahei", 15, bold=True)
     small = pygame.font.SysFont("microsoftyahei", 13)
@@ -349,6 +458,7 @@ def main() -> int:
     start_sender(pause_event)
     start_weather(dll)
     rx = make_receiver()
+    start_global_hotkeys(hotkey_queue := queue.Queue())
     log("双面板窗口已启动：左侧仪表盘 / 右侧时钟页")
 
     clock = pygame.time.Clock()
@@ -358,6 +468,26 @@ def main() -> int:
     ev_focus_gained = getattr(pygame, "WINDOWFOCUSGAINED", None)
     ev_focus_lost = getattr(pygame, "WINDOWFOCUSLOST", None)
     last_focus_log = None
+    hud_hits: dict[str, pygame.Rect] = {}
+    hud_logged = False
+
+    def toggle_pause(source: str = "按键") -> None:
+        if pause_event.is_set():
+            pause_event.clear()
+            log(f"[{source}] 广播已暂停（真实 3 秒超时切页）")
+        else:
+            pause_event.set()
+            log(f"[{source}] 广播已恢复")
+
+    def apply_theme_cmd(cmd: str, source: str) -> None:
+        arg = cmd.split(":", 1)[1]
+        if arg == "next":
+            theme = dll.sim_advance_theme()
+        else:
+            theme = int(arg)
+            dll.sim_set_theme(theme)
+        log(f"[{source}] 主题 -> {THEME_NAMES[theme]}")
+
     while running:
         paused = not pause_event.is_set()
         for event in pygame.event.get():
@@ -368,6 +498,8 @@ def main() -> int:
             elif ev_focus_lost is not None and event.type == ev_focus_lost:
                 focused = False
             elif event.type == pygame.KEYDOWN:
+                # 逐键日志：远程排查“按键到底有没有进来”
+                log(f"KEYDOWN key={event.key} unicode={event.unicode!r}")
                 if event.key == pygame.K_ESCAPE:
                     running = False
                 elif event.key == pygame.K_t:
@@ -377,12 +509,32 @@ def main() -> int:
                     dll.sim_set_theme(key_to_theme[event.key])
                     log(f"主题 -> {THEME_NAMES[key_to_theme[event.key]]}")
                 elif event.key == pygame.K_f:
-                    if pause_event.is_set():
-                        pause_event.clear()
-                        log("广播已暂停（真实 3 秒超时切页）")
-                    else:
-                        pause_event.set()
-                        log("广播已恢复")
+                    toggle_pause()
+            elif event.type == pygame.MOUSEBUTTONDOWN and \
+                    event.button == 1:
+                # 鼠标点击是远程/网页云电脑下最可靠的操作入口
+                pos = event.pos
+                hit_key = None
+                for key, rect in hud_hits.items():
+                    if rect.collidepoint(pos):
+                        hit_key = key
+                        break
+                log(f"CLICK pos={pos} hit={hit_key or 'none'}")
+                if hit_key == "pause":
+                    toggle_pause("点击")
+                elif hit_key:
+                    apply_theme_cmd(hit_key, "点击")
+
+        # 全局热键队列（Ctrl+Alt+1-5/T/F，不依赖窗口焦点）
+        while True:
+            try:
+                cmd = hotkey_queue.get_nowait()
+            except queue.Empty:
+                break
+            if cmd.startswith("theme:"):
+                apply_theme_cmd(cmd, "热键")
+            elif cmd == "pause":
+                toggle_pause("热键")
 
         while True:
             try:
@@ -394,7 +546,11 @@ def main() -> int:
         dll.sim_tick()
         blit_panel(dll, screen, 0, 0, 0)           # 左：仪表盘（固定页面 A）
         blit_panel(dll, screen, 512 + 24, 0, 1)    # 右：时钟页（固定页面 B）
-        draw_hud(dll, screen, font, small, paused, focused)
+        hud_hits = draw_hud(dll, screen, font, small, paused, focused)
+        if not hud_logged:
+            hud_logged = True
+            log("可点击区域（窗口内逻辑坐标）：" + " | ".join(
+                f"{k}={tuple(v)}" for k, v in hud_hits.items()))
         pygame.display.flip()
 
         # 焦点变化写一次日志，方便远程排查（只记变更）
