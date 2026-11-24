@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电脑桌面伴侣 · 上位机设计与实现方案 v1.0</title>
+<style>
+:root{
+  --paper:#FBFAF8; --ink:#1C2733; --ink-2:#3D4E63; --muted:#718096; --line:#E5E1DA;
+  --cyan:#0E7490; --cyan-soft:#E0F2F7; --amber:#B45309; --amber-soft:#FBF0DD;
+  --red:#B91C1C; --red-soft:#FBEAEA; --green:#15803D; --green-soft:#E6F4EA;
+  --card:#FFFFFF; --code-bg:#F4F2EE; --nav-w:220px;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,"Courier New",monospace;
+  --sans:"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.75}
+a{color:var(--cyan);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* 顶部题头 */
+.hero{background:linear-gradient(135deg,#0B1526 0%,#132A47 55%,#0E3A52 100%);color:#EAF2FB;padding:52px 48px 44px;border-bottom:3px solid #22D3EE}
+.hero .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.35em;color:#7CC7DB;text-transform:uppercase;margin-bottom:14px}
+.hero h1{font-size:34px;font-weight:800;letter-spacing:.02em;line-height:1.3}
+.hero h1 .en{color:#22D3EE;font-family:var(--mono);font-weight:600;font-size:15px;letter-spacing:.08em;vertical-align:middle;margin-left:14px}
+.hero .sub{margin-top:12px;font-size:15px;color:#B9CADF;max-width:860px}
+.hero .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.hero .meta span{font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.08);border:1px solid rgba(34,211,238,.25);border-radius:4px;padding:5px 12px;color:#CFE9F2}
+
+/* 布局 */
+.layout{display:flex;max-width:1280px;margin:0 auto;gap:0}
+nav.toc{width:var(--nav-w);flex-shrink:0;position:sticky;top:0;align-self:flex-start;max-height:100vh;overflow-y:auto;padding:34px 6px 40px 30px;font-size:13px}
+nav.toc .toc-title{font-family:var(--mono);font-size:11px;letter-spacing:.25em;color:var(--muted);margin:0 0 10px 8px}
+nav.toc a{display:block;color:var(--ink-2);padding:5px 10px;border-left:2px solid transparent;border-radius:0 4px 4px 0}
+nav.toc a:hover{background:var(--cyan-soft);border-left-color:var(--cyan);text-decoration:none;color:var(--cyan)}
+nav.toc a.lvl2{padding-left:24px;font-size:12.5px;color:var(--muted)}
+main{flex:1;min-width:0;padding:40px 48px 90px;max-width:960px}
+
+/* 章节 */
+section{margin-bottom:58px}
+h2{font-size:23px;font-weight:800;color:var(--ink);padding-bottom:12px;border-bottom:2px solid var(--line);margin-bottom:20px;letter-spacing:.01em}
+h2 .no{font-family:var(--mono);color:var(--cyan);font-weight:600;font-size:15px;margin-right:12px}
+h3{font-size:17.5px;font-weight:700;margin:30px 0 12px;color:var(--ink)}
+h3::before{content:"";display:inline-block;width:8px;height:8px;background:var(--cyan);border-radius:2px;margin-right:9px;transform:rotate(45deg) translateY(-1px)}
+h4{font-size:15px;font-weight:700;margin:20px 0 8px;color:var(--ink-2)}
+p{margin:10px 0}
+ul.pts{margin:10px 0 10px 4px;list-style:none}
+ul.pts li{padding-left:22px;position:relative;margin:6px 0}
+ul.pts li::before{content:"";position:absolute;left:2px;top:.72em;width:9px;height:2px;background:var(--cyan)}
+
+/* 引用注脚 */
+.fn{font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--code-bg);border:1px solid var(--line);border-radius:3px;padding:1px 6px;white-space:nowrap;vertical-align:1px}
+.src{font-size:12px;color:var(--muted);font-family:var(--mono);margin:6px 0 2px}
+.src::before{content:"▸ 依据 ";color:var(--cyan);font-weight:600}
+
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+th{background:var(--ink);color:#F0F4F8;text-align:left;font-weight:600;padding:9px 12px;font-size:12.5px;letter-spacing:.03em}
+td{border-bottom:1px solid var(--line);padding:9px 12px;vertical-align:top}
+tr:nth-child(even) td{background:#F7F5F1}
+td code, p code{font-family:var(--mono);font-size:12.5px;background:var(--code-bg);padding:1px 5px;border-radius:3px;color:#8C4A12}
+
+/* 卡片与标注 */
+.callout{border-radius:8px;padding:16px 18px;margin:16px 0;font-size:14px;line-height:1.7}
+.callout.ok{background:var(--green-soft);border-left:4px solid var(--green)}
+.callout.warn{background:var(--amber-soft);border-left:4px solid var(--amber)}
+.callout.danger{background:var(--red-soft);border-left:4px solid var(--red)}
+.callout.info{background:var(--cyan-soft);border-left:4px solid var(--cyan)}
+.callout b:first-child{display:inline}
+.callout .ct{font-weight:800;letter-spacing:.05em;font-family:var(--mono);font-size:12px;display:block;margin-bottom:6px}
+
+/* 决策记录表状态色 */
+.st{font-family:var(--mono);font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.st.y{background:var(--green-soft);color:var(--green)}
+.st.n{background:var(--red-soft);color:var(--red)}
+.st.w{background:var(--amber-soft);color:var(--amber)}
+
+/* 架构图 */
+.arc{background:#0F1E33;border-radius:10px;padding:26px 24px;margin:18px 0;font-family:var(--mono);font-size:12.5px;color:#B9CADF;line-height:1.9;overflow-x:auto}
+.arc .hl{color:#22D3EE}.arc .hm{color:#F5B542}.arc .hd{color:#8FA6BF}.arc .g{color:#5A7391}
+.arc pre{font-family:inherit;margin:0}
+
+/* 协议报文 */
+.pkt{background:#0F1E33;border-radius:10px;padding:18px 22px;margin:12px 0;font-family:var(--mono);font-size:12.5px;color:#CFE9F2;line-height:1.85;overflow-x:auto}
+.pkt .k{color:#22D3EE}.pkt .v{color:#F5B542}.pkt .d{color:#5A7391}
+
+/* 里程碑 */
+.mile{border:1px solid var(--line);border-radius:10px;margin:18px 0;overflow:hidden;background:var(--card)}
+.mile>.mh{display:flex;align-items:baseline;gap:14px;padding:14px 20px;background:linear-gradient(90deg,#F2F6F9,#FBFAF8);border-bottom:1px solid var(--line)}
+.mile .mtag{font-family:var(--mono);font-weight:700;font-size:13px;color:#fff;background:var(--cyan);border-radius:5px;padding:3px 10px}
+.mile .mt{font-size:16px;font-weight:800}
+.mile .md{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.mile .mb{padding:14px 20px 16px;font-size:13.5px}
+.task{display:grid;grid-template-columns:110px 1fr;gap:4px 14px;margin:6px 0;padding:8px 10px;background:#F9F8F5;border-radius:6px}
+.task b{font-family:var(--mono);font-size:12px;color:var(--cyan);font-weight:600;align-self:baseline}
+.acpt{font-size:12.5px;color:var(--green);background:var(--green-soft);border-radius:4px;padding:4px 10px;margin-top:6px;display:inline-block;font-family:var(--mono)}
+
+/* 字体色卡 */
+.swatches{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.sw{border-radius:8px;overflow:hidden;border:1px solid var(--line);width:132px;font-size:11px;background:#fff}
+.sw .c{height:44px}
+.sw .t{padding:7px 9px;font-family:var(--mono);color:var(--ink-2);line-height:1.5}
+.sw .t b{display:block;font-size:11.5px;color:var(--ink)}
+
+footer{border-top:2px solid var(--line);margin-top:30px;padding:26px 48px;color:var(--muted);font-size:12.5px;font-family:var(--mono)}
+@media (max-width:1000px){.layout{display:block}nav.toc{position:static;width:auto;max-height:none;padding:20px 24px}main{padding:20px 24px 60px}.hero{padding:36px 24px}}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="kicker">PcPartnerWithRpiPicoW · Design Plan</div>
+  <h1>电脑桌面伴侣<span class="en">Desktop Companion App · v1.0</span></h1>
+  <p class="sub">面向零编程经验用户的 Windows 上位机：装好即用，图形化配网、主题换装、免 Key 天气与资源友好的常驻监控，配套 Pico W 桌面状态屏。</p>
+  <div class="meta">
+    <span>2026-11-24</span><span>状态：设计共识已锁定</span><span>目标平台：Windows 10 2004+ / Windows 11 x64</span><span>配对界面预览：desktop-companion-preview.html</span>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc">
+  <div class="toc-title">目 录</div>
+  <a href="#s1">1. 产品概述</a>
+  <a href="#s2">2. 决策记录（两轮访谈）</a>
+  <a href="#s3">3. 系统架构</a>
+  <a href="#s4">4. 通信协议设计</a>
+  <a href="#s5">5. 固件改动清单</a>
+  <a href="#s6">6. 主机端设计</a>
+  <a href="#s7">7. 用户体验设计</a>
+  <a href="#s8">8. 打包与分发</a>
+  <a href="#s9">9. 实现步骤 M0–M6</a>
+  <a href="#s10">10. 风险与开放问题</a>
+  <a href="#s11">11. v2 待办清单</a>
+  <a href="#s12">12. 附录：事实依据</a>
+</nav>
+
+<main>
+
+<!-- ================= 1 产品概述 ================= -->
+<section id="s1">
+  <h2><span class="no">01</span>产品概述</h2>
+  <p><b>一句话定位</b>：让用户把出厂已烧录固件的 Pico W 桌面状态屏「插上电脑就能用」的配套软件——全程零命令行、零编程、零 API Key。</p>
+
+  <h3>目标用户画像</h3>
+  <ul class="pts">
+    <li><b>桌搭爱好者</b>：买了成套桌面伴侣屏硬件（<b>出厂已烧录固件</b>，无 WiFi 凭据），只想点亮摆在桌面/塔机侧板上</li>
+    <li>不会也不愿打开终端；对「改源码、装 Python、申请 API Key」零容忍</li>
+    <li>整机是普通家用 Windows（台式有线为主，笔记本无线皆可）</li>
+  </ul>
+
+  <div class="callout ok">
+    <span class="ct" style="color:var(--green)">核心承诺（产品验收线）</span>
+    从「下载安装包」到「屏幕显示自己电脑的实时状态」，<b>不超过 5 分钟、不出现任何终端窗口、不申请任何 Key</b>。
+  </div>
+
+  <h3>产品形态</h3>
+  <ul class="pts">
+    <li><b>一个深色现代 UI 的 Windows 应用</b>（pywebview 外壳 + HTML 前端）：仪表盘主页、设备页、四步向导、设置、诊断五块功能区</li>
+    <li><b>托盘常驻</b>：平时只占托盘一角（内存预算达标态），单击开窗、右键快捷菜单；关窗不退出</li>
+    <li><b>开机自启动</b>（注册表 HKCU Run 键，可随时关闭）——开电脑即点亮桌面屏</li>
+  </ul>
+
+  <h3>非目标（v1 明确不做）</h3>
+  <ul class="pts">
+    <li>多设备同时管理、固件 OTA、应用内自动更新、多语言、浅色主题、局域网在线改 WiFi（详见 §11）</li>
+    <li>不迁移存量编译期 secrets 用户——旧固件一切照常（v2 指标包一个字节都不动 <span class="fn">pc_metrics/protocol.py:10-24</span>）</li>
+  </ul>
+</section>
+
+<!-- ================= 2 决策记录 ================= -->
+<section id="s2">
+  <h2><span class="no">02</span>决策记录（两轮访谈结晶）</h2>
+  <p>下表是 2026-11-24 两轮结构化访谈（11+8 个问题）的完整决策快照。<b>每条「放弃项」都曾是被认真考虑的方案</b>，记录于此防止后续反复。</p>
+  <table>
+    <tr><th style="width:150px">决策点</th><th>结论</th><th style="width:95px">状态</th></tr>
+    <tr><td>固件是否扩展</td><td>扩展：保持 v2 指标包 11 字段完全不变，并行新增「控制/状态通道」+ Flash 配置区</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>配网通道</td><td><b>仅两条</b>：②USB 数据线为主通道（直连免配对）；①SoftAP 热点为免线兜底（无凭据时固件自动进入）。<b>原提案「通道③ 局域网在线改网」被否决</b>（用户决定，简化攻击面与固件状态机）</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>控制通道权限分级</td><td>免鉴权开放：读状态、切主题、推天气；<b>改 WiFi 仅 USB 直连（免网络配对）或 SoftAP 配对码</b>；恢复出厂永不远程开放（仅物理按键/USB）</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>主题同步</td><td>UDP 控制包下发 → 复用固件现有 5 秒去抖落盘链路，所见即所得；App 用心跳确认「已同步」</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>天气架构</td><td><b>主机抓取 → UDP 推送</b>：Open-Meteo 免 Key 主源；设备彻底不依赖外网与 Key。固件自抓高德保留为 Key 存在时的兼容路径</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>城市选择</td><td>安装包内置离线省-市两级（地级市粒度，县级市属 v2）+ 经纬度库，不联网搜索</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>字库缺字</td><td>扩容固件字库：+全国地级市名 + 常用天气词条（约 +1200 字，估算，M3 实测）；App 推送前逐字校验，极端缺字回退省名</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>界面技术栈</td><td><b>方案 A：pywebview 托盘驻留</b>。关窗即销毁 WebView2 内核，托盘态 30–45MB（达成 10–50MB 红线）；开窗瞬间短暂升到 130–160MB。<b>CustomTkinter（全时段达标但视觉降级）与常驻 WebView2（超标）被放弃</b></td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>内存红线语义</td><td>「10~50MB」按<b>常驻（托盘）时段</b>执行；开窗为临时态（用户修正后共识）</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>开机自启动</td><td>HKCU Run 键：无需管理员、按用户生效、卸载自动清理；向导默认勾选，可取消，托盘/设置随时关闭（用户强调可取消）</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>首次向导</td><td>四步：连接设备 → 配 WiFi → 选城市 → 选主题+自启动。<b>无烧固件步骤</b>（产品出货已烧录，用户决定）</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>首启探测</td><td>开 App 先收心跳 2 秒：设备已在线则跳过向导直接进主界面（用户补充：不重复打扰老用户）</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>视觉方向</td><td>深色「仪表控制台」，色彩语言直接承自固件五主题语义色（青=运行、琥珀=数据/警示）；签名元素 = 设备实况预览卡</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>代码签名</td><td>v1 不购买证书，安装指引图文解释 SmartScreen「更多信息→仍要运行」；v2 视用户量购入</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>命名</td><td><b>「电脑桌面伴侣」</b>（纯中文，不用英文副标）</td><td><span class="st y">锁定</span></td></tr>
+    <tr><td>暂停监控</td><td>托盘/主页按钮 = 停止 UDP 广播 → 设备 3 秒后自动切时钟页（把固件断流逻辑变成用户的演示功能）</td><td><span class="st y">锁定</span></td></tr>
+  </table>
+</section>
+
+<!-- ================= 3 系统架构 ================= -->
+<section id="s3">
+  <h2><span class="no">03</span>系统架构</h2>
+  <div class="arc"><pre>
+<b>用户电脑（Windows 10 2004+ / Win11 x64）</b>                    <b>Pico W 桌面伴侣屏</b>                 <b>外网</b>
+┌────────────────────────────────────────┐           ┌──────────────────────┐
+│ <span class="hl">电脑桌面伴侣.exe</span>（单进程 · 托盘常驻）      │           │ <span class="hl">固件（在现有基础上扩展）</span>      │
+│                                        │           │                      │
+│  ┌─ pystray 托盘 ── 开窗/暂停/自启/退出 │           │  UDP 监听 0.0.0.0:8765                │
+│  ┌─ pywebview 主窗（关窗即销毁）        │           │   ├─ <span class="g">v2 指标包（不动）</span>       │
+│  │    └─ HTML 前端（本预览演化）        │           │   ├─ <span class="hl">CTL 控制包（新）</span>→ 主题/天气/探测    │
+│  │                                     │           │   └─ <span class="hl">PRV 配网包（新）</span>→ 仅配网模式收   │
+│  服务线程                              │           │                      │
+│   ├─ <span class="g">采集广播（复用 pc_metrics）</span> ──<span class="hl">1 pk/s 广播→</span>──│  心跳学习最近源     │
+│   ├─ <span class="hl">设备链路（新）</span> ·UDP 收发/USB CDC ──┴──<span class="hm">←10s 心跳·控制包←</span>──┤  <span class="hm">HBEAT（新）</span>         │
+│   ├─ <span class="hl">天气（新）</span> ·Open-Meteo 客户端 ──────────── HTTPS ────────────────→ <span class="hd">open-meteo.com（免 Key）</span>│
+│   └─ <span class="hl">设置持久化（新）</span> %APPDATA%\PcPartner\     │  时钟页天气 = 推送缓存 │
+└────────────────────────────────────────┘           └──────────────────────┘
+        │ USB CDC（配网主通道）                              │ 编译期 secrets（兼容保留，可空）
+        └──────────────────════════════════════             │ WiFi 凭据（新，Flash 配置区）
+</pre></div>
+
+  <h3>四条数据流</h3>
+  <table>
+    <tr><th>流</th><th>方向</th><th>载体</th><th>说明</th></tr>
+    <tr><td>① 指标流</td><td>PC → 设备（广播）</td><td>v2 JSON ≤512B，1Hz</td><td><b>现有链路原样复用</b>：psutil 采集、定向广播选址、seq 递增</td></tr>
+    <tr><td>② 控制流</td><td>PC → 设备（定向单播）</td><td>CTL JSON ≤128B</td><td>切主题 / 推天气 / 探测请求；与指标包同端口，接收端分流</td></tr>
+    <tr><td>③ 状态流</td><td>设备 → PC（单播）</td><td>HBEAT JSON，10s</td><td>在线状态、当前主题、固件版本、WiFi RSSI；回发给「最近一次收到包的源地址」</td></tr>
+    <tr><td>④ 配网流</td><td>PC → 设备（USB CDC 或 SoftAP 内 UDP）</td><td>PRV JSON Line</td><td>写 WiFi 凭据、读设备信息、恢复出厂（仅 USB）</td></tr>
+  </table>
+  <p class="src">指标流现状：README.md:3, 21-26 · pc_metrics/config.py:23-29 · 设备监听 0.0.0.0:8765（pico_freertos_firmware/src/network/udp_listener.c:94）· USB stdio 已启用（CMakeLists.txt:175-176，UART 关闭）</p>
+</section>
+
+<!-- ================= 4 协议设计 ================= -->
+<section id="s4">
+  <h2><span class="no">04</span>通信协议设计</h2>
+
+  <h3>4.1 端口与分发规则</h3>
+  <p>所有 UDP 包共用 <code>8765</code> 端口。<code>udp_listener</code> 收包后进入<b>两段式解析</b>（不依赖字段顺序，不放松 v2 门禁）：</p>
+  <ul class="pts">
+    <li>先跑现有 v2 严格校验（11 字段齐全、v==2、seq 单调、范围校验）→ 通过则照旧进入 <code>system_state_update_metrics</code></li>
+    <li>失败且是合法 JSON → 交给新的 CTL/PRV 解析器；键 <code>"c"</code> 走控制命令、键 <code>"prv"</code> 走配网命令（仅配网模式/USB 接受）</li>
+  </ul>
+  <p class="src">v2 严格校验现状：pico_freertos_firmware/src/network/metrics_parser.c:200-225 · 明文无 CRC 为既有决策（README.md:339）</p>
+
+  <h3>4.2 CTL 控制包（PC → 设备，≤128B）</h3>
+  <div class="pkt">
+{ "<span class="k">c</span>":"<span class="v">theme</span>", "<span class="k">id</span>":<span class="v">2</span> }                       <span class="d">// 切主题 0-4；复用 system_state_set_theme + 5s 去抖落盘</span><br>
+{ "<span class="k">c</span>":"<span class="v">wx</span>", "<span class="k">t</span>":<span class="v">9.0</span>, "<span class="k">w</span>":<span class="v">45</span>, "<span class="k">ct</span>":<span class="v">16</span>, "<span class="k">city</span>":"<span class="v">扬州</span>", "<span class="k">ts</span>":<span class="v">1764000000</span> }   <span class="d">// 推天气快照</span><br>
+{ "<span class="k">c</span>":"<span class="v">probe</span>" }                                  <span class="d">// 请求立即回一次 HBEAT（App 启动探测）</span>
+  </div>
+  <table>
+    <tr><th>字段</th><th>类型/范围</th><th>语义</th></tr>
+    <tr><td><code>c</code></td><td>枚举 theme/wx/probe</td><td>命令名（packet 首键）</td></tr>
+    <tr><td><code>id</code></td><td>0–4 整数</td><td>主题 ID，与固件 UiThemeId 一一对应（include/ui_theme_id.h:13-20）</td></tr>
+    <tr><td><code>t / w / ct</code></td><td>温度 ℃ / WMO 天气码 / 高德兼容天气码</td><td>主机完成翻译后下发；w 供设备显示词条，t 直接显示</td></tr>
+    <tr><td><code>city / ts</code></td><td>≤16B UTF-8 / Unix 秒</td><td>城市名（App 已确保字库覆盖）／快照时间，过期走「旧」前缀语义</td></tr>
+  </table>
+  <p><b>降级语义直接复用</b>：推送数据老化即置 <code>is_stale</code>，屏幕加「旧」前缀（weather_service.c:980-991 现有行为），PC 关机后设备保留最后画面，体验与高德自抓完全一致。</p>
+
+  <h3>4.3 HBEAT 心跳包（设备 → PC，10s / 应答式）</h3>
+  <div class="pkt">
+{ "<span class="k">hb</span>":<span class="v">1</span>, "<span class="k">th</span>":<span class="v">2</span>, "<span class="k">fw</span>":"<span class="v">1.5.0</span>", "<span class="k">rssi</span>":<span class="v">-58</span>, "<span class="k">mode</span>":<span class="v">1</span> }
+<span class="d">// th=当前主题 · fw=固件版本 · rssi=WFi 信号 · mode: 0无凭据配网中 / 1已连网 / 2断线重试</span>
+  </div>
+  <p><b>最近源学习</b>：固件当前只收不发（udp_listener.c 无发送代码），新增「记录最近合法包的源地址」作为心跳目标地址——主机探测 <code>probe</code> 或正在广播指标包，设备就有回程地址；若无源记录则跳过心跳（避免误广播）。这维持了「设备零配置、无 IP 发现协议」的现状哲学。</p>
+
+  <h3>4.4 PRV 配网命令（仅 USB CDC 与 SoftAP 模式接受）</h3>
+  <div class="pkt">
+{ "<span class="k">prv</span>":"<span class="v">set_wifi</span>", "<span class="k">ssid</span>":"<span class="v">Home-2.4G</span>", "<span class="k">psk</span>":"<span class="v">••••••</span>", "<span class="k">otp</span>":<span class="v">583412</span> }   <span class="d">// SoftAP 通道必带 otp；USB 免</span><br>
+{ "<span class="k">prv</span>":"<span class="v">scan</span>" }                                    <span class="d">// 设备侧扫描周边 WiFi 列表（SoftAP 内下发，解决 PC 用网线看不到 WiFi 的场景）</span><br>
+{ "<span class="k">prv</span>":"<span class="v">info</span>" } / { "<span class="k">prv</span>":"<span class="v">factory_reset</span>" }      <span class="d">// info=USB 诊断；恢复出厂仅 USB 或长按按键</span>
+  </div>
+  <ul class="pts">
+    <li><b>SoftAP</b>：热点名 <code>桌面伴侣-XXXX</code>（XXXX=MAC 尾 4 位），开放网络；屏幕显示 6 位数字配对码 = 一次性热点校验码；配对码连错 5 次自动退出配网模式（需长按重新进入）</li>
+    <li><b>凭据试连回滚</b>：新凭据 15 秒试连失败 → 自动回滚旧凭据并在屏上提示「未连上」，绝不让设备变砖</li>
+    <li><b>USB</b>：JSON Line（每行一条同构命令 + <code>→ 行式应答</code>），Raspberry Pi 官方 VID <code>2E8A</code> 自动识别串口，插线即认设备</li>
+  </ul>
+  <p class="src">无凭据现状：WiFi 宏注入（tools/sync_secrets.py:24-40）、SSID 空则任务自删（wifi_manager.c:110-120）、屏幕显示 WIFI CONFIG（README.md:211）· SoftAP 在 Pico SDK 中即 <code>cyw43_arch_enable_ap_mode</code>，与 STA 同栈可用 · SmartConfig/SmartConfig 类广播配网在 CYW43 无混杂模式支持，已排除（技术事实）</p>
+
+  <h3>4.5 安全边界（明示声明，不假装）</h3>
+  <table>
+    <tr><th>能力</th><th>谁可以</th><th>防线</th></tr>
+    <tr><td>看广播流量（含指标与天气文字）</td><td>同网段任何设备</td><td>无（与现状一致：协议明文，README.md:341 已知限制）。设计文档与 App「关于」页明示</td></tr>
+    <tr><td>切主题 / 推天气 / 读心跳</td><td>同网段任何设备</td><td>影响≈物理按键按一下，接受（用户决策）</td></tr>
+    <tr><td>写 WiFi 凭据</td><td>仅 USB 持有者；SoftAP 模式内且带配对码</td><td>配对码 6 位 × 5 次机会；普通模式网络侧不监听 prv 命令</td></tr>
+    <tr><td>恢复出厂 / 抹凭据</td><td>USB 直连 或 长按按键</td><td>永不开放网络远程</td></tr>
+  </table>
+</section>
+
+<!-- ================= 5 固件改动 ================= -->
+<section id="s5">
+  <h2><span class="no">05</span>固件改动清单</h2>
+  <p>改动原则：<b>v2 指标链路与 16 个 ctest 一个都不动</b>；新能力全部走「新增文件 + 少量挂点」，可在 desktop-sim 中先行验证（仿真桥已证明固件源码可零改动编译成 DLL 跑在 PC 上，desktop-sim/sim_bridge.c）。</p>
+
+  <h3>5.1 新增模块</h3>
+  <table>
+    <tr><th>文件</th><th>职责</th><th>关键依赖（现有）</th></tr>
+    <tr><td><code>src/network/udp_control.c</code></td><td>UDP 两段式分流入口；CTL 解析（theme/wx/probe）与分发</td><td>udp_listener.c 的收包回调挂点</td></tr>
+    <tr><td><code>src/network/heartbeat.c</code></td><td>最近源学习；10s 定时 + probe 触发的 HBEAT 单播包</td><td>同一 UDP PCB 端口（0.0.0.0:8765）</td></tr>
+    <tr><td><code>src/provision/wifi_cred_store.c</code></td><td>WiFi 凭据 Flash 配置区（magic+ver+ssid+psk+checksum，读改写与去抖模式仿照 theme_storage.c:22-43）</td><td>theme_storage 的 Flash 扇区驱动模式</td></tr>
+    <tr><td><code>src/provision/softap_portal.c</code></td><td>无凭据开机进入 SoftAP：起热点、屏显配对码、收 PRV 包、otp 校验、试连回滚状态机</td><td>cyw43 AP 模式、wifi_manager 连接逻辑复用</td></tr>
+    <tr><td><code>src/provision/usb_config_link.c</code></td><td>USB CDC 行协议读写循环（stdio 已启用，CMakeLists.txt:175）</td><td>stdio_usb 与 FreeRTOS 任务框架</td></tr>
+    <tr><td><code>include/udp_control.h</code> 等 5 个头文件</td><td>对外接口</td><td>—</td></tr>
+  </table>
+
+  <h3>5.2 改动既有文件（挂点极小化）</h3>
+  <table>
+    <tr><th>文件</th><th>改动</th><th>依据</th></tr>
+    <tr><td><code>src/network/udp_listener.c</code></td><td>收包回调尾部加「v2 失败 → 交 udp_control 嗅探」一处挂点</td><td>metrics_parser 返回错误码体系（include/metrics_parser.h:16）</td></tr>
+    <tr><td><code>src/network/wifi_manager.c</code></td><td>凭据来源改为 cred_store 优先（编译期宏作为出厂默认/旁路保留）；SSID 空 → 不再自删任务，转入 softap_portal；新增试连回滚</td><td>现状 wifi_manager.c:110-120 SSID 空=自删</td></tr>
+    <tr><td><code>src/services/weather_service.c</code></td><td>新增 <code>wx 推送喂入入口</code>（把 CTL wx 包转成内部天气快照结构，复用现有解析核心与 stale 语义——与桌面仿真 sim_feed_weather_json 同构模式）</td><td>weather_service.c:980-991 stale 语义</td></tr>
+    <tr><td><code>src/state/system_state.c</code></td><td>心跳内容快照 getter（主题/RSSI/模式只读拼接）</td><td>SystemSnapshot.theme_id（include/system_state.h:60）</td></tr>
+    <tr><td><code>src/display/ui_render.c</code></td><td>新增「配网页」：热点名 + 6 位配对码 + 提示文案（词表控制在扩容字库内）</td><td>时钟页渲染既有（ui_render.c:343-346）</td></tr>
+    <tr><td><code>tools/build_font_multi.py</code></td><td>cjk_charset() 扩容：全部地级市名（含生僻字如「株洲 / 邯郸 / 蚌埠」）+ 天气词条 + 向导页文案所需字；输出体积报告命令</td><td>现状 147 字（tools/build_font_multi.py:43）</td></tr>
+    <tr><td><code>src/main.c</code> / <code>CMakeLists.txt</code></td><td>新模块初始化挂载 + 源文件注册</td><td>main.c:183-185 初始化模式</td></tr>
+  </table>
+
+  <div class="callout warn">
+    <span class="ct" style="color:var(--amber)">体积预算（估算，M3 实测）</span>
+    字库 +1200 字（12 档字号中常用 5 档裁剪）≈ Flash +40–140KB；RP2040 2MB Flash 当前固件占用远低于上限，预算安全，M3 出实测数字后回填本节。
+  </div>
+</section>
+
+<!-- ================= 6 主机端 ================= -->
+<section id="s6">
+  <h2><span class="no">06</span>主机端设计</h2>
+
+  <h3>6.1 进程与线程模型</h3>
+  <p>单进程 <code>python 3.11</code>（PyInstaller 打包），一个主线程 + 三个工作线程 + pystray 托盘：</p>
+  <table>
+    <tr><th>单元</th><th>内容</th><th>频率 / 触发</th></tr>
+    <tr><td>UI 线程</td><td>pywebview 窗口（HTML 前端即本预览的工程化演化版）；<b>关闭窗口 = 整个 WebView2 销毁并回收内存</b></td><td>用户开窗</td></tr>
+    <tr><td>采集/广播线程</td><td><b>直接复用 pc_metrics</b>（collectors + protocol.encode_packet + broadcaster，零重写）；暂停/恢复由事件控制</td><td>1Hz 常开（暂停除外）</td></tr>
+    <tr><td>设备链路线程</td><td>HBEAT 收发（8765 本地收包）、CTL 下发、USB CDC 扫描（VID 2E8A 枚举 + 探活）、SoftAP 切网编排</td><td>心跳监听常开；探测按需</td></tr>
+    <tr><td>天气线程</td><td>Open-Meteo 拉取（当前小时天气 code + 温度）→ WMO 码翻译中文词条 → 字库校验 → CTL wx 推送</td><td>默认 30 分钟（可 15/30/60）</td></tr>
+    <tr><td>pystray 托盘</td><td>图标 + 菜单（打开主界面 / 暂停监控 / 开机自启动 ✓ / 退出）</td><td>事件驱动</td></tr>
+  </table>
+
+  <h3>6.2 代码结构</h3>
+  <div class="pkt">
+companion/                         <span class="d"># 新顶层包（与 pc_metrics 平级，互不侵入）</span><br>
+├─ app.py            <span class="d">进程入口：托盘 → 开窗 → 生命周期</span><br>
+├─ device_link.py    <span class="d"># 心跳收发 · CTL 下发 · USB CDC · SoftAP 编排</span><br>
+├─ weather.py        <span class="d"># Open-Meteo 客户端 · WMO→中文词条 · 字库校验 · 推送队列</span><br>
+├─ city_db.py        <span class="d"># 离线省-市两级 + 经纬度（随包分发 JSON）</span><br>
+├─ settings.py       <span class="d"># %APPDATA%\PcPartner\settings.json 读写 + 自启动注册表键</span><br>
+├─ tray.py           <span class="d"># pystray 托盘与菜单</span><br>
+└─ webui/            <span class="d"># 前端（index.html + JS，从本预览演化）</span>
+  </div>
+
+  <h3>6.3 设置持久化（settings.json）</h3>
+  <div class="pkt">
+{ "<span class="k">autostart</span>": <span class="v">true</span>,  "<span class="k">theme</span>": <span class="v">2</span>,  "<span class="k">city</span>": {"<span class="k">p</span>":"<span class="v">江苏</span>","<span class="k">c</span>":"<span class="v">扬州</span>","<span class="k">lat</span>":<span class="v">32.39</span>,"<span class="k">lon</span>":<span class="v">119.41</span>},<br>
+&nbsp;&nbsp;"<span class="k">refresh_s</span>": <span class="v">1.0</span>, "<span class="k">wx_min</span>": <span class="v">30</span>, "<span class="k">amap_key_opt</span>": "<span class="v">""</span>, "<span class="k">pause</span>": <span class="v">false</span>, "<span class="k">installed_at</span>": <span class="v">"2026-11-24T10:00:00"</span> }
+  </div>
+
+  <h3>6.4 资源预算表（验收口径）</h3>
+  <table>
+    <tr><th>指标</th><th>目标</th><th>依据/手段</th></tr>
+    <tr><td>常驻内存（托盘态）</td><td><b>≤45MB</b>（红线 50MB）</td><td>关窗即销毁 WebView2（pywebview window destroy）；python+pystray+线程为基底；M6 验收用任务管理器「提交大小」实测留档</td></tr>
+    <tr><td>开窗瞬时内存</td><td>130–160MB（临时态，标记为可接受）</td><td>WebView2 进程组；多应用共享 runtime 时更低；关闭窗口约 0.5s 内回收</td></tr>
+    <tr><td>CPU（稳态）</td><td><b>&lt;1%</b></td><td>1Hz psutil 非阻塞采样（collectors.py:103-107 现有路径）；GPU 采样仅 NVIDIA 存在时（collectors.py:139-177 节流逻辑）；心跳 10s 一次；天气 30 分钟一次</td></tr>
+    <tr><td>安装包体积</td><td>≤35MB</td><td>PyInstaller 目录模式 + 压缩；城市库 JSON ≈200KB；不含固件（出货已烧）</td></tr>
+  </table>
+
+  <h3>6.5 开机自启动</h3>
+  <ul class="pts">
+    <li>注册表 <code>HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run</code>，键名 <code>PcPartnerDesk</code>，值为安装路径 exe——无需管理员、按用户生效</li>
+    <li>卸载（Inno 卸载器）自动清理该键；设置页/托盘菜单开关即时改写；向导默认勾选（用户可取消）</li>
+    <li>同机重复启动保护：第二条进程检测命名信号量后把已有实例窗口前置并退出自身</li>
+  </ul>
+</section>
+
+<!-- ================= 7 UX ================= -->
+<section id="s7">
+  <h2><span class="no">07</span>用户体验设计</h2>
+  <p>界面预览与全部交互：<b>desktop-companion-preview.html</b>（本仓库根目录；设备屏双页 × 五主题排版 1:1 复刻；全部按钮可点击）。本节给出交互规则。</p>
+
+  <h3>7.1 首启判定（不重复打扰）</h3>
+  <div class="arc"><pre>
+App 启动 → 是否首次安装完成？──否──→ 直进主界面（托盘 + 窗口）
+   │是
+   ▼
+ 听 HBEAT + 发 probe，<span class="hl">2 秒探测窗</span>
+   ├─ 收到心跳（设备已配网且在线）→ 直进主界面，toast「设备已就绪」<span class="g">   ← 用户指定行为</span>
+   ├─ 检测到 USB CDC（VID 2E8A）  → 向导步①·「通过 USB 连接」就绪态
+   └─ 都没有                        → 向导步①·「等待设备」态：提示通电；屏幕自动出热点时
+                                      引导连接「桌面伴侣-XXXX」→ SoftAP 分支
+  </div>
+
+  <h3>7.2 四步向导</h3>
+  <table>
+    <tr><th style="width:110px">步骤</th><th>界面要素</th><th>成功判据 → 下一步</th><th>失败分支（都有出口）</th></tr>
+    <tr><td>① 连接设备</td><td>三张入口卡：USB（插上即亮）/ 热点（屏显 6 位配对码输入）/ 已在线（自动跳过）</td><td>任一通道握手应答 info</td><td>「看不到热点？→ 长按设备按键 3 秒重新进入配网模式」</td></tr>
+    <tr><td>② 配 WiFi</td><td>设备侧扫描出的 WiFi 列表（信号强度、加密标记）+ 密码框（眼睛显隐）+ 配对码</td><td>设备试连成功（15s 内）心跳模式变为「已连网」</td><td>试连失败 → 自动回滚旧凭据 + 提示重输（设备永不变砖）</td></tr>
+    <tr><td>③ 选城市</td><td>省-市两级级联（离线库）+ 已选预览「江苏 · 扬州」</td><td>选定即拉一次天气（此步顺带验证外网连通）</td><td>拉取失败 → 「稍后自动重试，不阻塞向导」，天气进入退避刷新</td></tr>
+    <tr><td>④ 主题与自启</td><td>五套主题实况预览（小屏同款渲染）+ 开机自启动勾选框（<b>默认勾选，可取消</b>）</td><td>CTL theme 包 + HBEAT 确认同主题 ID</td><td>发送失败 → 标记「待同步」，设备恢复在线后自动补发</td></tr>
+  </table>
+
+  <h3>7.3 主界面与托盘交互规则</h3>
+  <table>
+    <tr><th>操作</th><th>结果</th></tr>
+    <tr><td>托盘左键单击</td><td>开/前置主窗（若窗口已销毁则重建，约 0.5s）</td></tr>
+    <tr><td>托盘右键菜单</td><td>打开主界面 / 暂停监控（恢复监控） / 开机自启动 ✓ / 退出</td></tr>
+    <tr><td>主窗 × 关闭</td><td><b>缩回托盘，程序不退出</b>（toast 告知一次，后续不再提示）</td></tr>
+    <tr><td>暂停监控</td><td>停发 UDP 指标广播 → 设备 3 秒后自动切到时钟页（复用现有断流策略 system_state.c:165-175）；按钮变「恢复监控」</td></tr>
+    <tr><td>真退出</td><td>仅托盘菜单「退出」——退出即生效（屏幕自动切时钟页继续显示），不再弹窗确认</td></tr>
+  </table>
+  <p class="src">时钟页切换现状：3 秒超时（kPcMetricTimeoutMs system_state.c:18）、由渲染任务 20ms 推进（ui_render.c:1032-1034）、恢复广播自动回仪表盘（system_state.c:104-108）</p>
+
+  <h3>7.4 一键诊断（侧栏「诊断」页）</h3>
+  <table>
+    <tr><th>诊断项</th><th>检查什么</th><th>红了给用户的建议（示例文案）</th></tr>
+    <tr><td>设备在线</td><td>HBEAT 3 秒窗口是否收到</td><td>「屏幕不在线。先确认它通电了，而且和电脑连的是同一个路由器。屏幕若显示热点名，重新运行向导」</td></tr>
+    <tr><td>网络可达</td><td>本地 UDP socket 实发包 + 网卡子网出口正常</td><td>「正在用无线网卡发送：请确认电脑与屏幕连的是同一路由器」</td>
+    <tr><td>天气源连通</td><td>Open-Meteo HTTPS 探测一次</td><td>「暂时拿不到天气：稍后自动重试（设备时钟页会照常显示）」</td></tr>
+    <tr><td>版本检查</td><td>GitHub Releases 最新版对比</td><td>「有新版本 v1.x：去下载页」（v1 不做应用内自更新）</td></tr>
+  </table>
+
+  <h3>7.5 文案与状态原则（零基础用户）</h3>
+  <ul class="pts">
+    <li><b>用户侧词汇</b>：说「暂停监控」「屏幕」，不说「UDP 广播」「进程」；技术词进「高级设置」和诊断详情</li>
+    <li><b>动词按钮</b>：按钮写结果——「保存并同步到屏幕」，不写「提交」</li>
+    <li><b>错误必给出口</b>：每条错误文案第二句就是下一步动作；禁止只有一个红色感叹号</li>
+    <li><b>同步诚实</b>：主题/天气发送后由心跳确认才显示「已同步 ✓」，不确认就显示「待同步」，绝不假成功</li>
+  </ul>
+</section>
+
+<!-- ================= 8 打包 ================= -->
+<section id="s8">
+  <h2><span class="no">08</span>打包与分发</h2>
+  <table>
+    <tr><th>项</th><th>方案</th></tr>
+    <tr><td>安装器</td><td>Inno Setup 中文向导（下一步式、中文许可、开始菜单/桌面快捷方式可选、卸载清理含自启动键）</td></tr>
+    <tr><td>主程序</td><td>PyInstaller <b>目录模式</b>（onedir 启动更快、便于按文件更新）≈15–30MB</td></tr>
+    <tr><td>WebView2 运行时</td><td>安装器静默检测：Win11 自带；Win10 2004+ 绝大多数已随系统/Edge 存在；缺失时弹引导一键在线安装（官方 evergreen bootstrapper）</td></tr>
+    <tr><td>SmartScreen</td><td>v1 不签名（用户决策）。首次运行蓝色横幅 → 安装器与 README 双处图文指引「更多信息 → 仍要运行」</td></tr>
+    <tr><td>发布渠道</td><td>GitHub Releases（本仓库）；App 内「检查更新」跳转 Releases 页（v1 不做应用内自动更新）</td></tr>
+    <tr><td>系统下限</td><td>Windows 10 2004 x64 / Windows 11 x64（WebView2 就绪线）</td></tr>
+  </table>
+</section>
+
+<!-- ================= 9 实现步骤 ================= -->
+<section id="s9">
+  <h2><span class="no">09</span>实现步骤（M0–M6）</h2>
+  <p>里程碑可独立验收；对应仓库约定，任务已同步落盘 <code>.scratch/desktop-companion-app/</code>（spec.md + issues/，遵循 docs/agents/issue-tracker.md）。全程约束：<b>固件宿主 ctest 16 个与主机侧单测零回归</b>（当前 16 套注册于 pico_freertos_firmware/tests/CMakeLists.txt；README「13 套」为过时口径，本计划按 16 计）。</p>
+
+  <div class="mile">
+    <div class="mh"><span class="mtag">M0</span><span class="mt">规格冻结与仿真基线</span><span class="md">0.5 天</span></div>
+    <div class="mb">
+      <div class="task"><b>T-00a</b><span>本设计文档评审定稿；.scratch spec + tickets 建立</span></div>
+      <div class="task"><b>T-00b</b><span>desktop-sim 扩 v2 仿真：<code>sim_bridge</code> 增加 CTL/HBEAT 桩（先解锁「App 真前端 ↔ 仿真设备」联调路径，sim_bridge.c 现有导出模式直接扩展）</span></div>
+      <span class="acpt">验收：文档评审通过；仿真桥新增导出符号编译通过、ctest 16/16 不回归</span>
+    </div>
+  </div>
+
+  <div class="mile">
+    <div class="mh"><span class="mtag">M1</span><span class="mt">固件：控制与心跳通道</span><span class="md">2–3 天</span></div>
+    <div class="mb">
+      <div class="task"><b>T-01a</b><span><code>udp_control.c</code>：两段式分流 + theme/wx/probe 解析（测试先行：新增 ctest udp_control，覆盖非法/越界/截断包）</span></div>
+      <div class="task"><b>T-01b</b><span>theme 命令接线 <code>system_state_set_theme</code>（复用现有 5 秒去抖落盘链路：theme_commit_policy.c 去抖 + theme_commit_task.c 落盘，不改一行提交策略）</span></div>
+      <div class="task"><b>T-01c</b><span><code>heartbeat.c</code>：最近源学习 + 10s HBEAT + probe 应答；测试 fixture 并入 tools/gen_protocol_fixtures.py 跨语言一致性</span></div>
+      <div class="task"><b>T-01d</b><span>wx 推送喂入天气快照（stale 语义复用），时钟页显示推送数据</span></div>
+      <span class="acpt">验收：ctest 18/18（新增 udp_control、heartbeat 两套）；desktop-sim 用仿真桥走真实 CTL JSON → 主题/心跳/天气联动演示通过</span>
+    </div>
+  </div>
+
+  <div class="mile">
+    <div class="mh"><span class="mtag">M2</span><span class="mt">固件：双通道配网</span><span class="md">3–4 天</span></div>
+    <div class="mb">
+      <div class="task"><b>T-02a</b><span><code>wifi_cred_store.c</code> Flash 凭据区（模式仿 theme_storage：magic/ver/checksum/去抖写）+ ctest 编解码与坏块回退</span></div>
+      <div class="task"><b>T-02b</b><span><code>softap_portal.c</code>：无凭据自动进 SoftAP + 屏显配对码 + prv/set_wifi（含 otp ×5 次锁定）+ 试连 15s 回滚状态机 + ctest 状态机全覆盖</span></div>
+      <div class="task"><b>T-02c</b><span><code>usb_config_link.c</code>：CDC JSON 行协议 + 工厂重置命令（仅 USB）；Windows 端 <code>vid=2E8A</code> 枚举实测</span></div>
+      <div class="task"><b>T-02d</b><span><code>wifi_manager.c</code> 改凭据源 + 编译期空凭据旁路保留（老版本兼容路径不动）</span></div>
+      <div class="task"><b>T-02e</b><span>配网页渲染（ui_render.c 新增；文案词全部入 M3 扩容字库）</span></div>
+      <span class="acpt">验收：实测「无凭据开机→热点→配网→连上→重启记忆」「断网重连」「错密码自动回滚」三剧本全通过；ctest 全绿</span>
+    </div>
+  </div>
+
+  <div class="mile">
+    <div class="mh"><span class="mtag">M3</span><span class="mt">固件：天气与字库扩容</span><span class="md">1–2 天</span></div>
+    <div class="mb">
+      <div class="task"><b>T-03a</b><span><code>build_font_multi.py</code> charset 扩容：全国 333 个地级行政区名 + 每字 12 档中按需档 + 天气词条 + 向导词表；输出体积/覆盖率报告</span></div>
+      <div class="task"><b>T-03b</b><span>gen_protocol_fixtures 扩 wx 推送样例（构造字节→C 解析→快照断言闭环）</span></div>
+      <span class="acpt">验收：字库体积实测回填 §5.2 预算；随机抽 30 个城市名渲染无缺字（含生僻：株洲/邯郸/蚌埠/吕梁/隰县）</span>
+    </div>
+  </div>
+
+  <div class="mile">
+    <div class="mh"><span class="mtag">M4</span><span class="mt">主机：服务层（无 UI 全部可测）</span><span class="md">2–3 天</span></div>
+    <div class="mb">
+      <div class="task"><b>T-04a</b><span>companion 包骨架 + settings.py（JSON 持久化 + HKCU Run 注册表键）+ unittest（注册表用临时 hive 注入）</span></div>
+      <div class="task"><b>T-04b</b><span>device_link.py：HBEAT 收发 / CTL 下发重试 / usb CDC 扫描（COM 口枚举 + 行协议）——unittest 全桩化（沿用 tests/ 的注入桩传统）</span></div>
+      <div class="task"><b>T-04c</b><span>weather.py：Open-Meteo 客户端（urllib+TLS，系统证书）+ WMO→中文词条表 + 字库校验器（导入字库 charset 做 set 比对）+ 失败退避 1/5/15/30 分钟（与固件节奏一致）</span></div>
+      <div class="task"><b>T-04d</b><span>city_db.py：民政部省-市两级 + 经纬度数据集打包（来源与抓取脚本入库 tools/）</span></div>
+      <span class="acpt">验收：services 层 unittest 全绿；对仿真桥联调：服务层控制真仿真设备切主题/推天气/收心跳端到端跑通</span>
+    </div>
+  </div>
+
+  <div class="mile">
+    <div class="mh"><span class="mtag">M5</span><span class="mt">主机：界面与托盘</span><span class="md">3–4 天</span></div>
+    <div class="mb">
+      <div class="task"><b>T-05a</b><span>webui 前端工程化：把预览 HTML 拆为 pywebview 资源（原生组件替换 canvas 预览的纯模拟部分为真数据绑定）</span></div>
+      <div class="task"><b>T-05b</b><span>四步向导 + 首启判定（§7.1）+ SoftAP 切网编排（netsh connect → 配对 → 回连原网实测）</span></div>
+      <div class="task"><b>T-05c</b><span>托盘 + 暂停监控 + 缩窗不退 + 单实例保护</span></div>
+      <div class="task"><b>T-05d</b><span>诊断页四项联通真检查；设置页全部开关落地</span></div>
+      <span class="acpt">验收：预览页全部交互逐项点测通过（场景导演/四步向导/主题同步/暂停切页/诊断/托盘/设置）；真机 E2E：装→向导→点亮→换主题→暂停切页→恢复</span>
+    </div>
+  </div>
+
+  <div class="mile">
+    <div class="mh"><span class="mtag">M6</span><span class="mt">打包、验收与发布</span><span class="md">2 天</span></div>
+    <div class="mb">
+      <div class="task"><b>T-06a</b><span>Inno Setup 中文安装器 + WebView2 检测 + SmartScreen 指引页</span></div>
+      <div class="task"><b>T-06b</b><span>资源实测：托盘态内存/CPU 连续 24h 曲线（对照 §6.4 表，写入验收记录）</span></div>
+      <div class="task"><b>T-06c</b><span>实景验收剧本 12 条：含有线 PC 配网、无线 PC 配网、错密码、路由器重启恢复、Win10 2004 与 Win11 双平台</span></div>
+      <div class="task"><b>T-06d</b><span>README 补「电脑桌面伴侣」章节；GitHub Releases 挂安装包</span></div>
+      <span class="acpt">验收：全剧本通过；ctest 与 unittest 全绿；内存/CPU 实测数据达标并归档</span>
+    </div>
+  </div>
+
+  <h3>测试策略总纲</h3>
+  <ul class="pts">
+    <li><b>先仿真后实机</b>：M1–M3 的每个固件能力先在 desktop-sim 仿真桥上走通真实字节流，再刷真机</li>
+    <li><b>跨语言协议一致性</b>：CTL/HBEAT/PRV 全部进 gen_protocol_fixtures.py 数据集，Python 编码 ↔ C 解析双向断言（沿用 protocol_conformance 的既有模式，tests/CMakeLists.txt:99-107）</li>
+    <li><b>主机服务层 100% 桩化单测</b>：不碰真网卡/真串口（沿用 test_host.py 的注入桩传统，README.md:356）</li>
+  </ul>
+</section>
+
+<!-- ================= 10 风险 ================= -->
+<section id="s10">
+  <h2><span class="no">10</span>风险与开放问题</h2>
+  <table>
+    <tr><th>#</th><th>风险 / 开放问题</th><th>等级</th><th>应对</th></tr>
+    <tr><td>R1</td><td>SoftAP 内 UDP 包的 AP→设备路径：pico-sdk AP+STA 并存模式下 AP 接口收包细节需实测（UDP 服务器绑定 INADDR_ANY 是否覆盖 AP 接口）</td><td>中</td><td>M2 第一周即做「hello packet」实验；备选：SoftAP 期间降级用 USB，或 AP 通道走 HTTP（SDK 自带 httpd，成本+2 天）</td></tr>
+    <tr><td>R2</td><td>Open-Meteo 大陆长期可达性波动</td><td>中</td><td>App 内做连通性监测；诊断页暴露源状态；v2 若断供可平滑加备源（架构上源是可插拔的）</td></tr>
+    <tr><td>R3</td><td>netsh 切网在部分企业策略/驱动下失败</td><td>低</td><td>失败即降级为「提示用户手动连接热点」图文指引；USB 兜底永不缺席</td></tr>
+    <tr><td>R4</td><td>WebView2 缺失的 Win10 老版本</td><td>低</td><td>安装器引导在线装；离线场景企业用户提供离线运行时包说明</td></tr>
+    <tr><td>R5</td><td>字库扩容超出 Flash 预算</td><td>低</td><td>分档裁剪 + 只装地级市（县级合集留 v2）；M3 实测决定</td></tr>
+    <tr><td>R6</td><td>无签名导致安装转化率低</td><td>低</td><td>已决策接受；指引前置到 README 首屏；用量数据触发 v2 购证</td></tr>
+  </table>
+</section>
+
+<!-- ================= 11 v2 ================= -->
+<section id="s11">
+  <h2><span class="no">11</span>v2 待办清单（v1 明确砍掉）</h2>
+  <ul class="pts">
+    <li>多设备同时管理与命名</li>
+    <li>固件 OTA（UF2 OTA/BLE BSL 评估）</li>
+    <li>应用内自动更新（v1 只跳转 Releases）</li>
+    <li>浅色主题 / 多语言（英文）</li>
+    <li>局域网在线改 WiFi（Round 2 砍掉，若用户反馈强烈可带着配对窗口安全模型回归）</li>
+    <li>自定义屏幕页面布局/字段</li>
+    <li>县级市粒度城市库全量</li>
+  </ul>
+</section>
+
+<!-- ================= 12 附录 ================= -->
+<section id="s12">
+  <h2><span class="no">12</span>附录：事实依据与色板</h2>
+
+  <h3>A. 关键事实依据表（调研于 2026-11-24，行号以当日工作区为准）</h3>
+  <table>
+    <tr><th>#</th><th>事实</th><th>来源</th></tr>
+    <tr><td>F1</td><td>UDP v2 单向明文 JSON 11 字段、端口 8765、无主题字段、设备不回包</td><td>pc_metrics/protocol.py:7-24 · udp_listener.c 全文 · README.md:313-339</td></tr>
+    <tr><td>F2</td><td>WiFi/Key/adcode 编译期注入；换凭据需重编译重烧；无配网模式</td><td>tools/sync_secrets.py:24-40 · build.sh:53-54 · grep SoftAP/captive 零命中</td></tr>
+    <tr><td>F3</td><td>USB stdio 已启用、UART 关闭（CDC 配网通道传输层现成）</td><td>pico_freertos_firmware/CMakeLists.txt:175-176</td></tr>
+    <tr><td>F4</td><td>天气 Key 为空自禁用；stale「旧」前缀降级链路现成</td><td>weather_service.c:1083-1095 · :980-991</td></tr>
+    <tr><td>F5</td><td>固件字库现为 147 汉字封闭集；时钟页渲染城市与天气文字</td><td>tools/build_font_multi.py:43 · ui_render.c:343-346</td></tr>
+    <tr><td>F6</td><td>主机纯 CLI 无 GUI/托盘/自启；配置为源码常量；运行依赖仅 psutil</td><td>pc_metrics/host.py · config.py:23-29 · requirements-host.txt:1</td></tr>
+    <tr><td>F7</td><td>Open-Meteo 免注册免 Key 非商业免费、全球/中文时区支持</td><td>open-meteo 官方文档 + 2026 年国内多篇实践（检索 2026-11-24）</td></tr>
+    <tr><td>F8</td><td>desktop-sim 证明固件源码可零改动编译 DLL 预览（联调路径现成）</td><td>desktop-sim/sim_bridge.c · build_sim.ps1:13-29</td></tr>
+    <tr><td>F9</td><td>主题 5 套（瑞士大字阶/复古终端/便当网格/工业示波/战术机甲），GP15 按键切换、5s 去抖 Flash 落盘</td><td>ui_theme_id.h:13-20 · ui_theme.c:14-95 · theme_commit_policy.c:9（kDebounceMs=5000）</td></tr>
+    <tr><td>F10</td><td>SmartConfig 类广播配网在 CYW43 无混杂模式支持（排除依据）</td><td>cyw43 驱动能力面（Pico SDK）；架构上已定 SoftAP+USB 双通道即可覆盖</td></tr>
+  </table>
+
+  <h3>B. 五主题色板（RGB565 原值 → 近似 sRGB；与上位机 UI 同血统）</h3>
+  <div class="swatches">
+    <div class="sw"><div class="c" style="background:#E7E7E7;border-bottom:6px solid #000"></div><div class="t"><b>瑞士大字阶</b>bg #000000<br>fg #E7E7E7 · 青 #00FFCE</div></div>
+    <div class="sw"><div class="c" style="background:#04FF7E;border-bottom:6px solid #018000"></div><div class="t"><b>复古终端</b>bg 深绿黑<br>磷光绿 #0FFF7E</div></div>
+    <div class="sw"><div class="c" style="background:#FF6100;border-bottom:6px solid #212521"></div><div class="t"><b>便当网格</b>bg 深灰<br>琥珀数字 + 薄荷点缀</div></div>
+    <div class="sw"><div class="c" style="background:#00FFCE;border-bottom:6px solid #08420F"></div><div class="t"><b>工业示波</b>bg 深海军<br>青波形 + 琥珀刻度</div></div>
+    <div class="sw"><div class="c" style="background:#0FFF7F;border-bottom:6px solid #002102"></div><div class="t"><b>战术机甲</b>bg 近黑<br>青主色 + 洋红告警</div></div>
+  </div>
+  <p class="src">原值取自 ui_theme.c:14-90（每主题 12 个 16bit 令牌：bg/fg/muted/dim/line/surface/surface_hi/accent/accent_2/warn/error/grid）；上方为展示近似值，预览页设备屏在 canvas 内按 RGB565 位运算精确展开，并按五套主题分别绘制仪表盘页（巨型主数值/终端字符条/便当卡片/示波波形/环形表）与时钟页（天气条/时分秒大钟/星期徽块/公历/农历）——共 5×2 套版式，对应 docs/superpowers/specs/screen_designs_5styles_dual_pages.html 的双页设计稿</p>
+
+  <h3>C. 与 AGENTS.md 的一致性</h3>
+  <ul class="pts">
+    <li>本计划落位 <code>design-plans/2026-11-24-desktop-companion-app-plan.html</code>（延续 design-plans 惯例）</li>
+    <li>实施 spec 与 tickets 落 <code>.scratch/desktop-companion-app/</code>（spec.md + issues/NN-*.md，遵循 docs/agents/issue-tracker.md 的单文件单 ticket 约定）</li>
+    <li>AGENTS.md 提及的 GLOSSARY.md 与 docs/adr/ 当前不存在（过时引用），实施期若建 ADR 建议放 docs/adr/ 并同步修复 AGENTS.md 引用</li>
+  </ul>
+</section>
+
+</main>
+</div>
+<footer>
+PcPartnerWithRpiPicoW · 电脑桌面伴侣设计计划 v1.0 · 2026-11-24 · 两轮访谈共识（11 终端用户决策 + 8 实现决策）· 配套文件：desktop-companion-preview.html（全交互界面预览）· .scratch/desktop-companion-app/（实施 tickets）
+</footer>
+</body>
+</html>
