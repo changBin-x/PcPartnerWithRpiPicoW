@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电脑桌面伴侣 · 界面预览 v1.0（全交互）</title>
+<style>
+/* ============ 设计令牌：与固件五主题同血统的仪表控制台 ============ */
+:root{
+  --bg-deep:#0A1220; --bg-desk:#070D18;
+  --panel:#101B2E; --panel-2:#16243D; --panel-3:#1D2E4D;
+  --ink:#E8EFF9; --muted:#8BA0BD; --faint:#5A7093;
+  --cyan:#22D3EE; --cyan-dim:rgba(34,211,238,.14);
+  --amber:#F5B542; --amber-dim:rgba(245,181,66,.13);
+  --red:#FF5C7A; --green:#4ADE80;
+  --line:rgba(139,160,189,.15); --line-soft:rgba(139,160,189,.09);
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,"Courier New",monospace;
+  --sans:"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;
+  --r:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg-desk);color:var(--ink);font-size:14px;overflow:hidden}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,select{font-family:inherit;outline:none}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#24385B;border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ============ 预览导演条（预览工具，非产品 UI） ============ */
+#directors{position:fixed;top:0;left:0;right:0;z-index:9000;display:flex;align-items:center;gap:10px;
+  background:#0C1424;border-bottom:1px solid var(--line);padding:8px 18px;font-size:12px}
+#directors .dt{font-family:var(--mono);color:var(--cyan);letter-spacing:.12em;font-size:11px}
+#directors .chip{padding:5px 13px;border-radius:15px;border:1px solid var(--line);color:var(--muted);font-size:12px;transition:.15s}
+#directors .chip:hover{border-color:var(--cyan);color:var(--ink)}
+#directors .chip.on{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan);font-weight:600}
+#directors .tip{margin-left:auto;color:var(--faint);font-size:11.5px;font-family:var(--mono)}
+#directors .tip b{color:var(--amber);font-weight:600}
+
+/* ============ 桌面舞台 ============ */
+#stage{position:fixed;inset:36px 0 0 0;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(1200px 700px at 70% 20%,#13223D 0%,#0A1322 45%,#060C16 100%)}
+#stage .desklabel{position:absolute;bottom:56px;left:50%;transform:translateX(-50%);color:#33486E;font-family:var(--mono);font-size:11px;letter-spacing:.3em}
+
+/* 任务栏（模拟 Windows 托盘区） */
+#taskbar{position:fixed;left:0;right:0;bottom:0;height:44px;background:rgba(10,18,32,.88);backdrop-filter:blur(8px);
+  border-top:1px solid var(--line);display:flex;align-items:center;z-index:8000;padding:0 14px}
+#taskbar .tb-mid{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:4px}
+#taskbar .tb-app{width:38px;height:32px;border-radius:6px;display:grid;place-items:center;color:var(--faint);font-size:16px;transition:.15s}
+#taskbar .tb-app.on{background:var(--cyan-dim);color:var(--cyan)}
+#taskbar .tb-right{margin-left:auto;display:flex;align-items:center;gap:14px;color:var(--muted);font-family:var(--mono);font-size:11px}
+#tb-clock{line-height:1.4;text-align:right}
+#trayBtn{width:34px;height:30px;border-radius:8px;display:grid;place-items:center;transition:.15s;position:relative}
+#trayBtn:hover{background:var(--cyan-dim)}
+#trayBtn svg{width:17px;height:17px}
+#trayBtn .dot{position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:var(--green)}
+#trayBtn .dot.off{background:var(--red)}
+
+/* 托盘菜单 */
+#trayMenu{position:fixed;right:10px;bottom:52px;z-index:8500;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 18px 50px rgba(0,0,0,.55);padding:6px;min-width:210px;display:none}
+#trayMenu.open{display:block;animation:pop .14s ease-out}
+#trayMenu .tm-t{font-size:12px;color:var(--muted);padding:8px 12px 6px;font-weight:600}
+#trayMenu button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border-radius:7px;font-size:13px;color:var(--ink)}
+#trayMenu button:hover{background:var(--panel-3)}
+#trayMenu button .ck{width:16px;color:var(--cyan)}
+#trayMenu hr{border:none;border-top:1px solid var(--line-soft);margin:5px 8px}
+
+/* ============ 应用主窗口 ============ */
+#appwin{width:min(1060px,94vw);height:min(680px,calc(100vh - 120px));background:var(--bg-deep);border:1px solid var(--line);
+  border-radius:14px;box-shadow:0 30px 90px rgba(0,0,0,.6),0 0 0 1px rgba(34,211,238,.05);display:flex;flex-direction:column;overflow:hidden;
+  transition:opacity .2s,transform .2s}
+#appwin.hidden{opacity:0;transform:scale(.96) translateY(8px);pointer-events:none}
+@keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+
+/* 标题栏 */
+.titlebar{height:46px;display:flex;align-items:center;background:linear-gradient(180deg,#122040,#0E1A30);border-bottom:1px solid var(--line);padding:0 6px 0 16px;flex-shrink:0}
+.titlebar .logo{width:22px;height:22px;display:grid;place-items:center;margin-right:9px}
+.titlebar .name{font-weight:800;font-size:13.5px;letter-spacing:.05em}
+.titlebar .ver{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-left:8px}
+.titlebar .devbadge{margin-left:14px;font-size:11px;font-family:var(--mono);padding:3px 10px;border-radius:10px;background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(34,211,238,.3)}
+.titlebar .devbadge.off{background:rgba(255,92,122,.12);color:var(--red);border-color:rgba(255,92,122,.35)}
+.titlebar .spacer{flex:1}
+.winbtn{width:40px;height:32px;border-radius:7px;display:grid;place-items:center;color:var(--muted);font-size:15px}
+.winbtn:hover{background:var(--panel-3);color:var(--ink)}
+.winbtn.close:hover{background:#C42B4A;color:#fff}
+
+/* 主体三栏 */
+.body{flex:1;display:flex;min-height:0}
+.rail{width:170px;flex-shrink:0;background:#0C1628;border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:4px}
+.railbutton{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:9px;color:var(--muted);font-size:13.5px;transition:.14s;border:1px solid transparent;text-align:left}
+.railbutton .ic{width:20px;text-align:center;font-size:15px}
+.railbutton:hover{color:var(--ink);background:var(--panel-2)}
+.railbutton.active{background:var(--panel-3);color:var(--cyan);border-color:rgba(34,211,238,.25);font-weight:600}
+.railbutton.active .ic{color:var(--cyan)}
+.rail .rfoot{margin-top:auto;padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--faint);line-height:1.8;border-top:1px solid var(--line-soft)}
+.rail .rfoot .k{color:var(--amber)}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.statusbar{height:40px;flex-shrink:0;display:flex;align-items:center;gap:16px;padding:0 20px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted)}
+.statusbar .sb-item{display:flex;align-items:center;gap:6px}
+.statusbar .lb{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px rgba(74,222,128,.7)}
+.statusbar .lb.off{background:var(--red);box-shadow:0 0 6px rgba(255,92,122,.7)}
+.statusbar .lb.amber{background:var(--amber);box-shadow:0 0 6px rgba(245,181,66,.6)}
+.statusbar .spacer{flex:1}
+#hdrPause{font-size:11.5px;padding:5px 14px;border-radius:14px;background:var(--amber-dim);color:var(--amber);border:1px solid rgba(245,181,66,.3);font-family:var(--sans)}
+#hdrPause:hover{background:rgba(245,181,66,.22)}
+.content{flex:1;overflow-y:auto;padding:22px 24px;scroll-behavior:smooth}
+
+/* 视图容器 */
+.view{display:none;animation:fadein .2s ease-out}
+.view.active{display:block}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+
+/* ============ 通用卡片 ============ */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+.card h3.ct{font-size:13px;font-weight:700;letter-spacing:.06em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.card h3.ct::before{content:"";width:6px;height:6px;background:var(--cyan);border-radius:2px;transform:rotate(45deg)}
+.card h3.ct .sub{font-weight:400;color:var(--faint);font-size:11px;margin-left:auto;font-family:var(--mono)}
+.grid{display:grid;gap:14px}
+
+/* 遥测卡 */
+.mrow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px 14px;position:relative;overflow:hidden}
+.metcard .mtag{font-size:11px;color:var(--muted);letter-spacing:.15em;font-weight:600;display:flex;justify-content:space-between}
+.metcard .mval{font-family:var(--mono);font-size:31px;font-weight:700;margin:8px 0 4px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.metcard .mval small{font-size:14px;color:var(--muted);font-weight:400}
+.metcard .mwarn{color:var(--amber)!important}
+.metcard .mhi{color:var(--red)!important}
+.metcard .spark{position:relative;height:26px;margin-top:6px}
+.metcard .spark canvas{width:100%;height:26px;display:block}
+.metcard.glow::after{content:"";position:absolute;inset:auto -30% -60% -30%;height:70%;background:radial-gradient(closest-side,var(--cyan-dim),transparent);opacity:.6}
+
+/* 按钮体系 */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 18px;border-radius:9px;font-size:13px;font-weight:600;transition:.15s;border:1px solid var(--line)}
+.btn.primary{background:var(--cyan);color:#06222B;border-color:transparent}
+.btn.primary:hover{background:#5CE0F5;box-shadow:0 4px 18px rgba(34,211,238,.3)}
+.btn.ghost{color:var(--muted)}
+.btn.ghost:hover{color:var(--ink);border-color:var(--line);background:var(--panel-2)}
+.btn.danger{background:rgba(255,92,122,.12);color:var(--red);border-color:rgba(255,92,122,.35)}
+.btn.danger:hover{background:rgba(255,92,122,.22)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.sm{padding:6px 13px;font-size:12px}
+
+/* 开关 */
+.switch{position:relative;width:42px;height:23px;border-radius:12px;background:#233552;transition:.18s;flex-shrink:0;border:1px solid var(--line)}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#7E93B5;transition:.18s}
+.switch.on{background:rgba(34,211,238,.28);border-color:var(--cyan)}
+.switch.on::after{left:21px;background:var(--cyan)}
+.srow{display:flex;align-items:center;justify-content:space-between;padding:13px 2px;border-bottom:1px solid var(--line-soft);gap:16px}
+.srow:last-child{border-bottom:none}
+.srow .sl{font-size:13.5px}
+.srow .sl .sd{font-size:11.5px;color:var(--faint);margin-top:3px;line-height:1.5}
+.srow .sright{display:flex;align-items:center;gap:12px}
+
+/* 选择器 */
+.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg button{padding:6px 13px;border-radius:7px;font-size:12px;color:var(--muted)}
+.seg button.on{background:var(--panel-3);color:var(--cyan);font-weight:600}
+select.sel,input.inp{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:8px 12px;font-size:13px}
+select.sel:focus,input.inp:focus{border-color:var(--cyan)}
+input.inp.err{border-color:var(--red);box-shadow:0 0 0 3px rgba(255,92,122,.12)}
+.formmsg{font-size:11.5px;margin-top:5px}
+.formmsg.err{color:var(--red)}
+.formmsg.ok{color:var(--green)}
+
+/* ============ 设备预览（签名元素） ============ */
+.device-shell{background:linear-gradient(160deg,#182A47,#0E1C33);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 20px 50px rgba(0,0,0,.45)}
+.device-shell .shell-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px;font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+.device-shell .shell-head .r565{color:var(--cyan)}
+.device-shell .bezel{border-radius:12px;background:#000;padding:9px;border:1px solid #1E304E;box-shadow:inset 0 0 24px rgba(0,0,0,.9)}
+#devCanvas{display:block;width:100%;image-rendering:pixelated;border-radius:5px}
+.device-shell .shell-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+.device-shell .shell-foot .tname{font-size:13px;font-weight:700}
+.device-shell .shell-foot .tname b{color:var(--cyan)}
+.syncpill{font-family:var(--mono);font-size:10.5px;padding:4px 11px;border-radius:12px;background:rgba(74,222,128,.13);color:var(--green);border:1px solid rgba(74,222,128,.3);transition:.2s}
+.syncpill.wait{background:var(--amber-dim);color:var(--amber);border-color:rgba(245,181,66,.3)}
+
+/* 主题选择缩略 */
+.tgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.tcard{border:1.5px solid var(--line);border-radius:11px;padding:10px 10px 9px;background:var(--panel-2);transition:.15s;position:relative}
+.tcard:hover{border-color:var(--faint);transform:translateY(-2px)}
+.tcard.sel{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,.13)}
+.tcard .tvis{height:54px;border-radius:7px;position:relative;overflow:hidden;margin-bottom:8px}
+.tcard .tvis .bar{position:absolute;left:8%;bottom:0;height:3px;border-radius:2px;width:0}
+.tcard .tvis .n{font-family:var(--mono);font-weight:700;font-size:13px;position:absolute;top:8px;left:9px}
+.tcard .tvis .n2{font-family:var(--mono);font-size:8px;position:absolute;top:26px;left:9px;opacity:.55}
+.tcard .tname{font-size:12px;font-weight:600;text-align:center}
+.tcard .tname small{display:block;font-weight:400;color:var(--faint);font-size:10px;margin-top:2px;font-family:var(--mono)}
+.tcard .tick{position:absolute;top:7px;right:7px;width:18px;height:18px;border-radius:50%;background:var(--cyan);color:#06222B;display:none;place-items:center;font-size:11px;font-weight:800}
+.tcard.sel .tick{display:grid}
+
+/* 信息列表 */
+.kv{display:flex;justify-content:space-between;padding:8.5px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--muted)}
+.kv .v{font-family:var(--mono);font-size:12px}
+.kv .v.g{color:var(--green)}.kv .v.a{color:var(--amber)}.kv .v.c{color:var(--cyan)}.kv .v.r{color:var(--red)}
+
+/* ============ 向导 ============ */
+#wizard{position:absolute;inset:0;background:rgba(7,13,24,.88);backdrop-filter:blur(6px);z-index:500;display:none;align-items:center;justify-content:center}
+#wizard.open{display:flex}
+.wbox{width:min(680px,92%);background:var(--bg-deep);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 40px 110px rgba(0,0,0,.7);animation:pop .18s ease-out}
+.wsteps{display:flex;padding:18px 30px 14px;gap:6px;border-bottom:1px solid var(--line)}
+.wstep{flex:1;display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--faint);cursor:pointer;padding:4px 2px}
+.wstep .n{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-family:var(--mono);font-size:11px;flex-shrink:0}
+.wstep.on{color:var(--cyan)}
+.wstep.on .n{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,.12)}
+.wstep.done{color:var(--green);cursor:pointer}
+.wstep.done .n{border-color:var(--green);color:var(--green);background:rgba(74,222,128,.1)}
+.wstep .lbl{white-space:nowrap}
+.wbody{padding:28px 34px 26px;min-height:330px}
+.wfoot{display:flex;align-items:center;padding:16px 34px;border-top:1px solid var(--line);background:#0C1628}
+.wfoot .hint{font-size:12px;color:var(--faint);flex:1}
+.wfoot .btn{margin-left:10px}
+
+.conncards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:6px 0 4px}
+.conncard{border:1.5px solid var(--line);border-radius:12px;padding:16px 15px;background:var(--panel);transition:.15s;text-align:left;width:100%}
+.conncard:hover{border-color:var(--faint)}
+.conncard.ok{border-color:var(--green);background:rgba(74,222,128,.06);box-shadow:0 0 0 3px rgba(74,222,128,.08)}
+.conncard.busy{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,.1)}
+.conncard .cico{font-size:22px;margin-bottom:10px}
+.conncard .ct{font-size:13.5px;font-weight:700;margin-bottom:5px}
+.conncard .cd{font-size:11.5px;color:var(--muted);line-height:1.6}
+.conncard .cst{font-family:var(--mono);font-size:10.5px;margin-top:10px}
+.conncard.ok .cst{color:var(--green)}
+.conncard.busy .cst{color:var(--cyan)}
+.pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--cyan);animation:pl 1s infinite}
+@keyframes pl{0%,100%{opacity:1}50%{opacity:.25}}
+
+.wifiitem{display:flex;align-items:center;gap:12px;width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid var(--line);background:var(--panel);margin-bottom:8px;transition:.13s;text-align:left}
+.wifiitem:hover{border-color:var(--faint)}
+.wifiitem.sel{border-color:var(--cyan);background:rgba(34,211,238,.07)}
+.wifiitem .sicon{display:flex;align-items:flex-end;gap:2px;height:16px;flex-shrink:0}
+.wifiitem .sicon i{width:3.5px;background:var(--muted);border-radius:1px}
+.wifiitem .ssid{font-family:var(--mono);font-size:12.5px}
+.wifiitem .wtag{margin-left:auto;font-size:10px;color:var(--faint);font-family:var(--mono);border:1px solid var(--line);border-radius:8px;padding:2px 8px}
+.wifiitem .picked{display:none;width:18px;height:18px;border-radius:50%;background:var(--cyan);color:#06222B;place-items:center;font-size:11px;font-weight:800}
+.wifiitem.sel .picked{display:grid}
+
+.wfinish{text-align:center;padding:34px 0 22px}
+.wfinish .okball{width:74px;height:74px;border-radius:50%;background:rgba(74,222,128,.12);border:2px solid var(--green);display:grid;place-items:center;margin:0 auto 20px;font-size:32px;color:var(--green);animation:pop .3s ease-out}
+
+/* 诊断项 */
+.diagrow{display:flex;align-items:center;gap:14px;padding:15px 16px;border:1px solid var(--line);border-radius:11px;background:var(--panel-2);margin-bottom:10px}
+.diagrow .dico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:16px;background:var(--panel-3);flex-shrink:0}
+.diagrow .dmain{flex:1}
+.diagrow .dt{font-size:13.5px;font-weight:700}
+.diagrow .dd{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.55}
+.diagrow .dst{font-family:var(--mono);font-size:11px;flex-shrink:0;min-width:64px;text-align:right}
+.spin{display:inline-block;width:16px;height:16px;border:2.5px solid var(--line);border-top-color:var(--cyan);border-radius:50%}
+.dl{font-family:var(--mono);font-size:11px;color:var(--muted);background:#0A1424;border:1px solid var(--line);border-radius:9px;padding:13px 15px;max-height:150px;overflow-y:auto;line-height:1.9}
+.dl .t{color:var(--faint)}
+.dl .ok{color:var(--green)}.dl .er{color:var(--red)}
+
+/* toast */
+#toasts{position:fixed;bottom:58px;right:16px;z-index:9500;display:flex;flex-direction:column-reverse;gap:9px}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--cyan);border-radius:10px;padding:11px 16px;font-size:12.5px;
+  box-shadow:0 12px 40px rgba(0,0,0,.5);animation:tin .22s ease-out;max-width:330px;line-height:1.5}
+.toast.ok{border-left-color:var(--green)}
+.toast.warn{border-left-color:var(--amber)}
+.toast.err{border-left-color:var(--red)}
+@keyframes tin{from{opacity:0;transform:translateX(24px)}to{opacity:1}}
+.toast.out{opacity:0;transform:translateX(24px);transition:.25s}
+
+/* 响应式 */
+@media (max-width:900px){.rail{width:60px}.railbutton .lbl,.rail .rfoot{display:none}.mrow{grid-template-columns:repeat(2,1fr)}.conncards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ============ 导演条 ============ -->
+<div id="directors">
+  <span class="dt">PREVIEW·导演台</span>
+  <button class="chip on" data-scene="online">设备已在线</button>
+  <button class="chip" data-scene="first">首次使用</button>
+  <button class="chip" data-scene="usb">USB 已插</button>
+  <button class="chip" data-scene="offline">设备离线</button>
+  <span class="tip">所有按钮都能点。快捷键：<b>1-5</b> 换主题，<b>P</b> 暂停/恢复。点右下角图标开托盘菜单</span>
+</div>
+
+<!-- ============ 桌面舞台 ============ -->
+<div id="stage">
+  <div id="appwin">
+    <div class="titlebar">
+      <span class="logo">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="15" height="12" rx="2" stroke="#22D3EE" stroke-width="1.8"/><path d="M5 8l3 0M5 11l6 0" stroke="#22D3EE" stroke-width="1.6" stroke-linecap="round"/><circle cx="19.5" cy="18.5" r="3" stroke="#F5B542" stroke-width="1.8"/><circle cx="19.5" cy="18.5" r="0.8" fill="#F5B542"/></svg>
+      </span>
+      <span class="name">电脑桌面伴侣</span><span class="ver">v1.0.0</span>
+      <span class="devbadge" id="devBadge">● 设备在线</span>
+      <span class="spacer"></span>
+      <button class="winbtn" id="btnHide" title="最小化">—</button>
+      <button class="winbtn close" id="btnClose" title="关闭（缩回托盘，不退出）">✕</button>
+    </div>
+    <div class="body">
+      <div class="rail">
+        <button class="railbutton active" data-view="dash"><span class="ic">◌</span><span class="lbl">监控台</span></button>
+        <button class="railbutton" data-view="device"><span class="ic">▣</span><span class="lbl">我的屏幕</span></button>
+        <button class="railbutton" data-view="settings"><span class="ic">⚙</span><span class="lbl">设置</span></button>
+        <button class="railbutton" data-view="diag"><span class="ic">✚</span><span class="lbl">诊断</span></button>
+        <button class="railbutton" id="railWizard"><span class="ic">✦</span><span class="lbl">重新运行向导</span></button>
+        <div class="rfoot">UDP 8765 · 1Hz<br><span class="k">th-</span>sync <span id="railTh">Swiss</span><br><span class="k">@</span>pico-w</div>
+      </div>
+      <div class="main">
+        <div class="statusbar">
+          <span class="sb-item"><span class="lb" id="sbLamp"></span><span id="sbState">正在发送电脑数据 → 192.168.1.255</span></span>
+          <span class="sb-item">已发送 <span id="sbSeq" style="color:var(--ink)">0</span> 条</span>
+          <span class="spacer"></span>
+          <button id="hdrPause">暂停监控</button>
+        </div>
+        <div class="content">
+
+          <!-- ========== 视图：监控台 ========== -->
+          <div class="view active" id="v-dash">
+            <div class="mrow">
+              <div class="metcard glow"><div class="mtag"><span>CPU</span><span id="cpuLbl" style="font-family:var(--mono);font-weight:400">I7-12700</span></div><div class="mval" id="mCpu">0<small>%</small></div><div class="spark"><canvas id="skCpu"></canvas></div></div>
+              <div class="metcard"><div class="mtag"><span>GPU</span><span style="font-family:var(--mono);font-weight:400" id="gpuLbl">RTX 3060</span></div><div class="mval" id="mGpu">0<small>%</small></div><div class="spark"><canvas id="skGpu"></canvas></div></div>
+              <div class="metcard"><div class="mtag"><span>内存</span></div><div class="mval" id="mRam">0<small>%</small></div><div class="spark"><canvas id="skRam"></canvas></div></div>
+              <div class="metcard"><div class="mtag"><span>网络</span><span id="netLbl" style="font-family:var(--mono);font-weight:400">↓MB/s ↑MB/s</span></div><div class="mval" id="mNet" style="font-size:22px">↓0.0 ↑0.0</div><div class="spark"><canvas id="skNet"></canvas></div></div>
+            </div>
+            <div class="grid" style="grid-template-columns:1.25fr 1fr;margin-top:14px">
+              <div class="card">
+                <h3 class="ct">屏幕实况<span class="sub" id="dashThName">主题·瑞士大字阶</span></h3>
+                <div style="display:flex;gap:18px;align-items:center">
+                  <div style="width:112px;cursor:pointer" id="miniDev" title="点这里去「我的屏幕」看大图">
+                    <div style="border:1px solid #25395F;border-radius:8px;background:#000;padding:4px"><canvas id="dashCanvas" width="128" height="160" style="width:100%;image-rendering:pixelated;border-radius:3px"></canvas></div>
+                  </div>
+                  <div style="flex:1">
+                    <div class="kv"><span class="k">当前页面</span><span class="v" id="dashPage">仪表盘 · 电脑数据</span></div>
+                    <div class="kv"><span class="k">天气</span><span class="v g" id="dashWx">雾 2℃ · 扬州市</span></div>
+                    <div class="kv"><span class="k">连接</span><span class="v g" id="dashHb">正常，信号好</span></div>
+                    <div class="kv"><span class="k">下次刷新</span><span class="v">29 分 12 秒</span></div>
+                    <button class="btn ghost sm" style="margin-top:12px" data-goto="device">在「我的屏幕」中管理 →</button>
+                  </div>
+                </div>
+              </div>
+              <div class="card">
+                <h3 class="ct">快捷操作</h3>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <button class="btn primary" id="qaTheme">换一套屏幕主题</button>
+                  <button class="btn ghost" id="qaPause2">暂停监控（屏幕将切到时钟）</button>
+                  <button class="btn ghost" data-goto="diag">屏幕不亮了？一键诊断</button>
+                  <button class="btn ghost" data-goto="settings">开机自启动与城市设置</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== 视图：我的屏幕 ========== -->
+          <div class="view" id="v-device">
+            <div class="grid" style="grid-template-columns:340px 1fr;align-items:start">
+              <div class="device-shell">
+                <div class="shell-head"><span>PICO-W · 128×160</span><span class="r565" id="shAccent">accent #07f9</span></div>
+                <div class="bezel"><canvas id="devCanvas" width="128" height="160"></canvas></div>
+                <div class="shell-foot">
+                  <span class="tname" id="shTheme">主题<b> 瑞士大字阶</b></span>
+                  <span class="syncpill" id="syncPill">已同步 ✓</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="card">
+                  <h3 class="ct">屏幕主题<span class="sub">选好立即生效，屏幕会记住</span></h3>
+                  <div class="tgrid" id="themeGrid"></div>
+                </div>
+                <div class="grid" style="grid-template-columns:1fr 1fr">
+                  <div class="card">
+                    <h3 class="ct">页面预览</h3>
+                    <div class="seg" id="pageSeg">
+                      <button data-page="dash">仪表盘页</button>
+                      <button data-page="clock">时钟页</button>
+                    </div>
+                    <p style="font-size:12px;color:var(--faint);margin-top:12px;line-height:1.7">平时显示<b>电脑数据</b>；电脑停止发送 3 秒后，屏幕自动改显<b>时钟</b>，恢复后自动切回。点「暂停监控」能看到切换。</p>
+                  </div>
+                  <div class="card">
+                    <h3 class="ct">设备信息<span class="sub" id="dvLast">刚刚在线</span></h3>
+                    <div class="kv"><span class="k">状态</span><span class="v g" id="dvState">在线 · 已配网</span></div>
+                    <div class="kv"><span class="k">Wi-Fi</span><span class="v" id="dvSsid">Home-2.4G</span></div>
+                    <div class="kv"><span class="k">信号</span><span class="v g" id="dvRssi">-58 dBm（良好）</span></div>
+                    <div class="kv"><span class="k">固件版本</span><span class="v" id="dvFw">1.5.0-companion</span></div>
+                    <div class="kv"><span class="k">IP 地址</span><span class="v" id="dvIp">192.168.1.50</span></div>
+                    <button class="btn ghost sm" style="margin-top:12px" id="btnReWifi">更换 Wi-Fi</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== 视图：设置 ========== -->
+          <div class="view" id="v-settings">
+            <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="card">
+                  <h3 class="ct">启动</h3>
+                  <div class="srow">
+                    <div class="sl">开机自动启动<div class="sd">开机就在后台运行，屏幕自动亮起，不弹窗口；随时可关</div></div>
+                    <div class="sright"><div class="switch on" id="swAutostart" role="switch" tabindex="0"></div></div>
+                  </div>
+                  <div class="srow">
+                    <div class="sl">关闭窗口时<div class="sd">最小化到托盘继续运行（退出请用托盘右键菜单）</div></div>
+                    <div class="sright"><span style="color:var(--faint);font-size:12px">默认行为</span></div>
+                  </div>
+                </div>
+                <div class="card">
+                  <h3 class="ct">数据</h3>
+                  <div class="srow">
+                    <div class="sl">屏幕刷新间隔</div>
+                    <div class="sright"><div class="seg" id="segRefresh"><button>1 秒</button><button class="on">默认</button><button>5 秒</button></div></div>
+                  </div>
+                  <div class="srow">
+                    <div class="sl">天气刷新周期<div class="sd">天气由电脑取好再推给屏幕，屏幕本身不消耗流量</div></div>
+                    <div class="sright"><div class="seg" id="segWx"><button>15 分</button><button class="on">30 分</button><button>60 分</button></div></div>
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="card">
+                  <h3 class="ct">城市<span class="sub">内置全国城市，不用联网</span></h3>
+                  <div style="display:flex;gap:10px;margin-bottom:10px">
+                    <select class="sel" id="cityProv" style="flex:1"></select>
+                    <select class="sel" id="cityCity" style="flex:1"></select>
+                  </div>
+                  <div class="formmsg ok" id="cityMsg"></div>
+                </div>
+                <div class="card">
+                  <h3 class="ct">高级</h3>
+                  <div style="margin-top:12px">
+                    <div class="srow"><div class="sl">天气数据源<div class="sd">默认用 Open-Meteo，免费、不用申请 Key。想用高德就填 Key，留空也行</div></div><div class="sright"><span style="color:var(--green);font-size:12px">Open-Meteo 运行中</span></div></div>
+                    <div class="srow"><div class="sl">高德 Key（可选）</div><div class="sright"><input class="inp" placeholder="留空即可，无需填写" style="width:190px"></div></div>
+                  </div>
+                </div>
+                <div class="card">
+                  <h3 class="ct">关于</h3>
+                  <div class="kv"><span class="k">软件版本</span><span class="v">电脑桌面伴侣 v1.0.0</span></div>
+                  <div class="kv"><span class="k">开放仓库</span><span class="v c" style="cursor:pointer" id="lnkRepo">PcPartnerWithRpiPicoW ↗</span></div>
+                  <div class="kv"><span class="k">屏幕协议</span><span class="v">UDP · 明文（局域网）</span></div>
+                  <div style="display:flex;gap:10px;margin-top:14px">
+                    <button class="btn ghost sm" id="btnCheckUpd">检查更新</button>
+                    <button class="btn danger sm" id="btnQuit">退出程序</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== 视图：诊断 ========== -->
+          <div class="view" id="v-diag">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <div>
+                <div style="font-size:17px;font-weight:800">设备体检</div>
+                <div style="color:var(--faint);font-size:12.5px;margin-top:4px">四项全部通过就能正常使用，每项会给一句能照着做的处理办法</div>
+              </div>
+              <button class="btn primary" id="btnDiag">一键体检</button>
+            </div>
+            <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">
+              <div>
+                <div class="diagrow" data-diag="hb"><div class="dico">📡</div><div class="dmain"><div class="dt">设备在线</div><div class="dd" id="ddHb">尚未体检</div></div><span class="dst" id="dsHb">—</span></div>
+                <div class="diagrow" data-diag="bc"><div class="dico">📶</div><div class="dmain"><div class="dt">网络可达</div><div class="dd" id="ddBc">尚未体检</div></div><span class="dst" id="dsBc">—</span></div>
+                <div class="diagrow" data-diag="wx"><div class="dico">⛅</div><div class="dmain"><div class="dt">天气数据源</div><div class="dd" id="ddWx">尚未体检</div></div><span class="dst" id="dsWx">—</span></div>
+                <div class="diagrow" data-diag="ver"><div class="dico">⬆</div><div class="dmain"><div class="dt">版本检查</div><div class="dd" id="ddVer">尚未体检</div></div><span class="dst" id="dsVer">—</span></div>
+              </div>
+              <div class="card">
+                <h3 class="ct">诊断日志<span class="sub">可直接发给维护者</span></h3>
+                <div class="dl" id="diagLog"><div><span class="t">[12:00:00]</span> 等待体检…</div></div>
+                <button class="btn ghost sm" style="margin-top:12px" id="btnCopy">复制诊断信息</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 向导 ========== -->
+    <div id="wizard">
+      <div class="wbox">
+        <div class="wsteps">
+          <div class="wstep on" data-ws="1"><span class="n">1</span><span class="lbl">连接设备</span></div>
+          <div class="wstep" data-ws="2"><span class="n">2</span><span class="lbl">配置 Wi-Fi</span></div>
+          <div class="wstep" data-ws="3"><span class="n">3</span><span class="lbl">选择城市</span></div>
+          <div class="wstep" data-ws="4"><span class="n">4</span><span class="lbl">主题与自启</span></div>
+        </div>
+        <div class="wbody"></div>
+        <div class="wfoot"><span class="hint" id="wHint"></span><button class="btn ghost" id="wSkip" style="display:none">跳过向导</button><button class="btn primary" id="wNext" disabled>下一步</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="desklabel">WINDOWS 桌面 · 电脑桌面伴侣以托盘程序常驻</div>
+</div>
+
+<!-- ============ 任务栏 ============ -->
+<div id="taskbar">
+  <div class="tb-mid">
+    <button class="tb-app" title="开始" style="cursor:default">⊞</button>
+    <button class="tb-app on" title="电脑桌面伴侣" id="tbApp">▣</button>
+  </div>
+  <div class="tb-right">
+    <span style="letter-spacing:2px;cursor:default" title="输入法">中</span>
+    <span id="tbTrayIcons" title="已折叠图标">⌃</span>
+    <button id="trayBtn" title="电脑桌面伴侣 · 托盘图标">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="2.5" y="4" width="14" height="11" rx="2" stroke="#8BA0BD" stroke-width="1.8"/><path d="M5.5 7.5h4M5.5 10h7" stroke="#8BA0BD" stroke-width="1.5" stroke-linecap="round"/><circle cx="19" cy="18.2" r="3.2" stroke="#F5B542" stroke-width="1.7"/><circle cx="19" cy="18.2" r="0.9" fill="#F5B542"/></svg>
+      <span class="dot" id="trayDot"></span>
+    </button>
+    <div id="tb-clock"></div>
+  </div>
+</div>
+
+<!-- 托盘菜单（点击托盘图标触发） -->
+<div id="trayMenu">
+  <div class="tm-t">电脑桌面伴侣</div>
+  <button id="tmOpen">🖥 &nbsp;打开主界面</button>
+  <button id="tmPause">⏸ &nbsp;暂停监控</button>
+  <button id="tmAuto">☑ &nbsp;开机自启动 <span class="ck" id="tmAutoCk">✓</span></button>
+  <hr>
+  <button id="tmQuit">⏻ &nbsp;退出</button>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+/* =================================================================
+   电脑桌面伴侣 v1.0 · 交互预览
+   主题色板 = 固件 ui_theme.c RGB565 原值，按位精确展开
+================================================================= */
+const THEMES=[
+ {name:"瑞士大字阶",en:"Swiss", bg:0x0000,fg:0xe73c,muted:0xcebc,dim:0x9537,line:0x18e3,surface:0x0841,surface_hi:0x18a3,accent:0x07f9,accent2:0xfd40,warn:0xfd40,error:0xf80a,grid:0x18a3},
+ {name:"复古终端", en:"Tui",  bg:0x0060,fg:0x07ec,muted:0x064a,dim:0x0486,line:0x01a2,surface:0x00a1,surface_hi:0x07ec,accent:0x8fe0,accent2:0x07ec,warn:0x8fe0,error:0xf80a,grid:0x0142},
+ {name:"便当网格", en:"Bento",bg:0x0862,fg:0xef9e,muted:0x8c51,dim:0x7c0f,line:0x2125,surface:0x10a3,surface_hi:0x2125,accent:0xfd80,accent2:0x0734,warn:0xfd80,error:0xf80a,grid:0x2125},
+ {name:"工业示波", en:"Scope",bg:0x0842,fg:0xdf9e,muted:0x7d38,dim:0x5434,line:0x10e5,surface:0x0883,surface_hi:0x08a3,accent:0x07f9,accent2:0xfe40,warn:0xfe40,error:0xf80a,grid:0x1105},
+ {name:"战术机甲", en:"Hud",  bg:0x0021,fg:0x077f,muted:0x6cb7,dim:0x5c12,line:0x1106,surface:0x0842,surface_hi:0x0862,accent:0x077f,accent2:0xf80a,warn:0xf80a,error:0xf80a,grid:0x10c5}];
+function rgb565(h){const r=(h>>11)&31,g=(h>>5)&63,b=h&31;
+  return `rgb(${(r<<3)|(r>>2)},${(g<<2)|(g>>4)},${(b<<3)|(b>>2)})`;}
+function hex565(h){const r=(h>>11)&31,g=(h>>5)&63,b=h&31;
+  const f=v=>v.toString(16).padStart(2,"0").toUpperCase();
+  return "#"+f((r<<3)|(r>>2))+f((g<<2)|(g>>4))+f((b<<3)|(b>>2));}
+
+/* ---------- 全局状态 ---------- */
+const S={
+  scene:"online", view:"dash", theme:0, page:"dash",
+  paused:false, seq:0, quitting:false,
+  autostart:true, wstep:1, wifiSel:null, wifiOK:false, cityOK:false, themeOK:false,
+  _connReady:false,
+  metrics:{cpu:22,gpu:38,ram:51,rx:0.3,tx:0.1},
+  hist:{cpu:[],gpu:[],ram:[],net:[]},
+  wx:{city:"扬州市",text:"雾",temp:2,src:"Open-Meteo"},
+  hb:{online:true,rssi:-58,fw:"1.5.0-companion",ip:"192.168.1.50",ssid:"Home-2.4G"}};
+const $=id=>document.getElementById(id);
+const $$=s=>[...document.querySelectorAll(s)];
+
+/* ---------- Toast ---------- */
+function toast(msg,type="info",ms=3200){
+  const t=document.createElement("div");t.className="toast "+(type==="ok"?"ok":type==="warn"?"warn":type==="err"?"err":"");
+  t.innerHTML=msg;$("toasts").appendChild(t);
+  setTimeout(()=>{t.classList.add("out");setTimeout(()=>t.remove(),300)},ms);}
+
+/* ---------- 时钟 ---------- */
+let curCityFull={p:"江苏省",c:"扬州市"};
+function fmtTime(){const d=new Date(),p=n=>String(n).padStart(2,"0");
+  return {h:p(d.getHours()),m:p(d.getMinutes()),s:p(d.getSeconds()),
+    date:`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`,
+    wd:"日一二三四五六"[d.getDay()],md:`${p(d.getMonth()+1)}/${p(d.getDate())}`};}
+function tickClock(){const t=fmtTime();
+  $("tb-clock").innerHTML=`${t.h}:${t.m}:${t.s}<br>${d2(new Date())}`;
+  function d2(x){return `${x.getFullYear()}/${x.getMonth()+1}/${x.getDate()}`;}}
+
+/* =================================================================
+   设备屏渲染（128×160；五套主题 = 五套配色 × 五套排版，1:1 对应固件设计）
+   0 瑞士大字阶：单一巨型主数值   1 复古终端：反色标题条 + ASCII 字符条
+   2 便当网格：2×2 卡片          3 工业示波：网格 + CPU 波形 + 刻度
+   4 战术机甲：角括号 + 中央环形表
+================================================================= */
+const devCtx=$("devCanvas").getContext("2d");
+const dashCtx=$("dashCanvas").getContext("2d");
+const MONO="Consolas,'Courier New',monospace";
+function wIcon(ctx,C,x,y){for(let i=0;i<4;i++){ctx.fillStyle=i<3?C.acc:C.dim;ctx.fillRect(x+i*5,y,3,2+i*3);}}
+function corners(ctx,color){ctx.strokeStyle=color;ctx.lineWidth=1;
+  [[2,2,1,1],[126,2,-1,1],[2,158,1,-1],[126,158,-1,-1]].forEach(c=>{
+    ctx.beginPath();ctx.moveTo(c[0]+c[2]*9,c[1]);ctx.lineTo(c[0],c[1]);ctx.lineTo(c[0],c[1]+c[3]*9);ctx.stroke();});}
+
+const DASH=[
+/* 0 瑞士大字阶：一个巨型主数值撑起版面 */
+(ctx,C,M,F2,F3,d)=>{
+  ctx.font="8px "+M;ctx.fillStyle=C.muted;ctx.fillText(d.wxs,4,4);
+  wIcon(ctx,C,108,10);
+  ctx.font=F3;ctx.fillStyle=C.muted;ctx.fillText("CPU",4,20);
+  ctx.font="bold 46px "+M;ctx.fillStyle=C.fg;ctx.fillText(String(d.cpu),2,30);
+  const nw=ctx.measureText(String(d.cpu)).width;
+  ctx.font="bold 13px "+M;ctx.fillStyle=C.acc;ctx.fillText("%",6+nw,60);
+  ctx.fillStyle=C.line;ctx.fillRect(4,84,120,1);
+  [["GPU",d.gpu,96],["RAM",d.ram,112]].forEach(r=>{
+    ctx.font=F2;ctx.fillStyle=C.muted;ctx.fillText(r[0],4,r[2]);
+    ctx.fillStyle=r[1]>85?C.warn:C.fg;ctx.textAlign="right";ctx.fillText(r[1]+"%",124,r[2]);ctx.textAlign="left";});
+  ctx.fillStyle=C.line;ctx.fillRect(4,126,120,1);
+  ctx.font=F2;ctx.fillStyle=C.fg;ctx.fillText(`${d.T.h}:${d.T.m}:${d.T.s} 周${d.T.wd}`,4,132);
+  ctx.font=F3;ctx.fillStyle=C.muted;
+  ctx.fillText(`${d.T.md}  RX ${d.rx}  TX ${d.tx}`,4,148);
+},
+/* 1 复古终端：反色标题条 + > 提示符 + ASCII 进度条 */
+(ctx,C,M,F2,F3,d)=>{
+  for(let y=0;y<160;y+=4){ctx.fillStyle="rgba(255,255,255,.04)";ctx.fillRect(0,y,128,1);}
+  ctx.fillStyle=C.fg;ctx.fillRect(0,0,128,13);
+  ctx.fillStyle=C.bg;ctx.font="bold 9px "+M;ctx.fillText("PC://MONITOR",4,2);
+  ctx.textAlign="right";ctx.fillText(d.T.h+":"+d.T.m,124,2);ctx.textAlign="left";
+  ctx.strokeStyle=C.dim;ctx.lineWidth=1;ctx.strokeRect(2.5,18.5,123,124);
+  const bar=v=>{const n=Math.round(v/100*5);return "["+"#".repeat(n)+".".repeat(5-n)+"]";};
+  const row=(y,label,val)=>{ctx.font=F3;ctx.fillStyle=C.fg;ctx.fillText(">",6,y);
+    ctx.fillStyle=C.muted;ctx.fillText(label,14,y);
+    ctx.fillStyle=C.fg;ctx.textAlign="right";ctx.fillText(val,122,y);ctx.textAlign="left";};
+  row(26,"CPU",bar(d.cpu)+" "+d.cpu+"%");
+  row(45,"GPU",bar(d.gpu)+" "+d.gpu+"%");
+  row(64,"RAM",bar(d.ram)+" "+d.ram+"%");
+  row(86,"WX",d.wxs);
+  row(100,"NET","RX "+d.rx+"  TX "+d.tx);
+  row(114,"DATE",`${d.T.md} 周${d.T.wd}`);
+  ctx.font=F3;
+  ctx.fillStyle=S.hb.online?C.acc:C.warn;
+  ctx.fillText("> LINK "+(S.hb.online?"OK":"DOWN"),6,132);
+  ctx.fillStyle=C.fg;ctx.fillRect(96,131,5,9);   /* 终端光标块 */
+},
+/* 2 便当网格：2×2 卡片（直角硬边，贴合低分屏） */
+(ctx,C,M,F2,F3,d)=>{
+  ctx.font="8px "+M;
+  const cw=ctx.measureText(d.wxs).width;
+  ctx.fillStyle=C.surf;ctx.fillRect(2,3,cw+8,12);
+  ctx.fillStyle=C.acc;ctx.fillText(d.wxs,6,5);
+  wIcon(ctx,C,109,3);
+  const cell=(x,y,label,val,pct)=>{
+    ctx.fillStyle=C.surf;ctx.fillRect(x,y,56,44);
+    ctx.strokeStyle=C.line;ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,55,43);
+    ctx.font="8px "+M;ctx.fillStyle=C.muted;ctx.fillText(label,x+5,y+4);
+    if(Array.isArray(val)){ctx.font=F2;ctx.fillStyle=C.fg;
+      ctx.fillText(val[0],x+5,y+17);ctx.fillText(val[1],x+5,y+31);}
+    else{ctx.font="bold 17px "+M;ctx.fillStyle=val>85&&pct?C.warn:C.fg;ctx.fillText(val,x+5,y+15);
+      if(pct!=null){ctx.fillStyle=C.dim;ctx.fillRect(x+5,y+37,46,3);
+        ctx.fillStyle=C.acc;ctx.fillRect(x+5,y+37,Math.max(2,46*pct/100),3);}}};
+  cell(4,20,"CPU",d.cpu,d.cpu);
+  cell(68,20,"GPU",d.gpu,d.gpu);
+  cell(4,68,"RAM",d.ram,d.ram);
+  cell(68,68,"NET",["RX "+d.rx,"TX "+d.tx],null);
+  ctx.fillStyle=C.line;ctx.fillRect(4,119,120,1);
+  ctx.textAlign="center";
+  ctx.font=F2;ctx.fillStyle=C.fg;ctx.fillText(`${d.T.h}:${d.T.m}:${d.T.s}`,64,126);
+  ctx.font=F3;ctx.fillStyle=C.muted;ctx.fillText(`${d.T.md} 周${d.T.wd}`,64,142);
+  ctx.textAlign="left";
+},
+/* 3 工业示波：网格剖面 + CPU 实时波形 + 琥珀刻度 */
+(ctx,C,M,F2,F3,d)=>{
+  ctx.font=F3;ctx.fillStyle=C.muted;ctx.fillText("CH1 CPU",4,4);
+  ctx.textAlign="right";ctx.font="bold 16px "+M;ctx.fillStyle=C.fg;ctx.fillText(d.cpu+"%",124,0);ctx.textAlign="left";
+  ctx.font=F3;ctx.fillStyle=C.muted;ctx.fillText(d.wxs,4,17);
+  wIcon(ctx,C,108,20);
+  /* 网格 */
+  ctx.fillStyle=C.grid;
+  for(let x=6;x<124;x+=12)ctx.fillRect(x,42,1,76);
+  for(let y=42;y<118;y+=12)ctx.fillRect(6,y,118,1);
+  ctx.fillStyle=C.acc2;for(let x=6;x<124;x+=12)ctx.fillRect(x,118,1,3);
+  ctx.font="7px "+M;
+  ctx.fillText("100",3,40);ctx.fillText("50",3,72);ctx.fillText("0",3,112);
+  /* CPU 波形（真实历史序列） */
+  const pts=S.hist.cpu.slice(-16);
+  if(pts.length>1){
+    ctx.strokeStyle=C.acc;ctx.lineWidth=1.6;ctx.beginPath();
+    pts.forEach((v,i)=>{const x=6+i*(116/(pts.length-1)),y=114-v/100*68;
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+    ctx.stroke();
+    const lv=pts[pts.length-1];
+    ctx.fillStyle=C.acc;ctx.fillRect(6+(pts.length-1)*(116/(pts.length-1))-2,114-lv/100*68-2,4,4);
+  }
+  ctx.font=F3;
+  ctx.fillStyle=C.fg;ctx.fillText("GPU",4,126);ctx.fillStyle=C.muted;ctx.fillText(d.gpu+"%",24,126);
+  ctx.fillStyle=C.fg;ctx.fillText("RAM",4,137);ctx.fillStyle=C.muted;ctx.fillText(d.ram+"%",24,137);
+  ctx.textAlign="right";
+  ctx.fillStyle=C.muted;ctx.fillText("RX "+d.rx,124,126);ctx.fillText("TX "+d.tx,124,137);
+  ctx.textAlign="left";
+  ctx.textAlign="center";ctx.font=F2;ctx.fillStyle=C.fg;ctx.fillText(d.T.h+":"+d.T.m+":"+d.T.s,64,148);ctx.textAlign="left";
+},
+/* 4 战术机甲：四角括号 + 中央环形表 + 数据角标 */
+(ctx,C,M,F2,F3,d)=>{
+  corners(ctx,C.acc);
+  ctx.font=F3;
+  ctx.fillStyle=C.acc;ctx.fillText(S.wx.city,4,6);
+  ctx.fillStyle=C.muted;ctx.fillText(`${S.wx.text} ${S.wx.temp}℃`,4+ctx.measureText(S.wx.city).width+3,6);
+  wIcon(ctx,C,108,14);
+  const cx=64,cy=76,r=27;
+  ctx.strokeStyle=C.dim;ctx.lineWidth=4;
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();
+  ctx.strokeStyle=d.cpu>85?C.warn:C.acc;
+  ctx.beginPath();ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+Math.PI*2*d.cpu/100);ctx.stroke();
+  ctx.textAlign="center";
+  ctx.font="bold 20px "+M;ctx.fillStyle=C.fg;ctx.fillText(d.cpu+"%",cx,cy-16);
+  ctx.font=F3;ctx.fillStyle=C.muted;ctx.fillText("CPU",cx,cy+4);
+  ctx.textAlign="left";
+  ctx.font=F3;
+  ctx.fillStyle=C.muted;ctx.fillText("GPU",4,44);ctx.fillStyle=C.fg;ctx.fillText(d.gpu+"%",22,44);
+  ctx.fillStyle=C.muted;ctx.fillText("RAM",4,56);ctx.fillStyle=C.fg;ctx.fillText(d.ram+"%",22,56);
+  ctx.textAlign="right";
+  ctx.fillStyle=C.muted;ctx.fillText("RX "+d.rx,124,44);
+  ctx.fillStyle=C.acc;ctx.fillText(S.hb.online?"LIVE":"DOWN",124,56);
+  ctx.textAlign="left";
+  ctx.strokeStyle=C.line;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(2,120);ctx.lineTo(12,110);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(126,120);ctx.lineTo(116,110);ctx.stroke();
+  ctx.textAlign="center";
+  ctx.font=F2;ctx.fillStyle=C.fg;ctx.fillText(`${d.T.h}:${d.T.m}:${d.T.s}`,64,134);
+  ctx.font=F3;ctx.fillStyle=C.muted;ctx.fillText(`周${d.T.wd} ${d.T.md}`,64,149);
+  ctx.textAlign="left";
+}];
+
+/* 时钟页：与实机一致（状态图标 / 天气条 / 时分秒大钟 / 星期徽块 / 公历 / 农历） */
+function drawClock(ctx,C,M,F2,F3,d){
+  const T=d.T;
+  if(S.theme===1){for(let y=0;y<160;y+=4){ctx.fillStyle="rgba(255,255,255,.04)";ctx.fillRect(0,y,128,1);}}
+  ctx.fillStyle=C.muted;ctx.fillRect(4,7,4,4);ctx.fillRect(9,7,4,4);
+  /* 天气条 */
+  if(S.theme===2){ctx.fillStyle=C.surf;ctx.fillRect(2,22,124,18);}
+  if(S.theme===1){ctx.strokeStyle=C.dim;ctx.lineWidth=1;ctx.strokeRect(2.5,21.5,123,19);}
+  wIcon(ctx,C,108,25);
+  ctx.font=F2;
+  const a=S.wx.city+" ",b=`${S.wx.text} ${S.wx.temp}℃`;
+  const wa=ctx.measureText(a).width,wb=ctx.measureText(b).width;
+  const x0=Math.round((128-wa-wb)/2);
+  ctx.fillStyle=C.acc;ctx.fillText(a,x0,27);
+  ctx.fillStyle=C.fg;ctx.fillText(b,x0+wa,27);
+  /* 大时钟（时分秒同排） */
+  ctx.textAlign="center";
+  ctx.font="bold 26px "+M;ctx.fillStyle=C.fg;ctx.fillText(`${T.h}:${T.m}:${T.s}`,64,50);
+  /* 星期徽块（终端主题反色，避免与文字同色） */
+  const wd=`星期${T.wd}`;
+  const ww=ctx.measureText(wd).width;
+  ctx.fillStyle=S.theme===1?C.fg:C.surfHi;ctx.fillRect(64-ww/2-6,88,ww+12,15);
+  ctx.fillStyle=S.theme===1?C.bg:C.fg;ctx.fillText(wd,64,92);
+  /* 公历 + 农历 */
+  ctx.font=F2;ctx.fillText(T.date,64,112);
+  ctx.fillStyle=C.acc2;ctx.fillText("丙午年十月十六",64,128);
+  ctx.textAlign="left";
+  /* 主题收尾装饰 */
+  if(S.theme===3){ctx.fillStyle=C.acc2;for(let x=6;x<122;x+=12)ctx.fillRect(x,150,1,3);}
+  if(S.theme===4){corners(ctx,C.acc);
+    ctx.strokeStyle=C.acc2;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(2,148);ctx.lineTo(10,140);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(126,148);ctx.lineTo(118,140);ctx.stroke();}
+  if(S.theme===1){ctx.strokeStyle=C.dim;ctx.beginPath();ctx.moveTo(6,149);ctx.lineTo(122,149);ctx.stroke();}
+}
+
+function drawDevice(ctx,opts){
+  const th=THEMES[S.theme];
+  const C={bg:rgb565(th.bg),fg:rgb565(th.fg),muted:rgb565(th.muted),dim:rgb565(th.dim),
+    line:rgb565(th.line),surf:rgb565(th.surface),surfHi:rgb565(th.surface_hi),
+    acc:rgb565(th.accent),acc2:rgb565(th.accent2),warn:rgb565(th.warn),grid:rgb565(th.grid)};
+  const F2="bold 10px "+MONO,F3="9px "+MONO;
+  const T=fmtTime();
+  const d={cpu:Math.round(S.metrics.cpu),gpu:Math.round(S.metrics.gpu),ram:Math.round(S.metrics.ram),
+    rx:S.metrics.rx.toFixed(1),tx:S.metrics.tx.toFixed(1),wxs:`${S.wx.city} ${S.wx.text} ${S.wx.temp}℃`,T};
+  ctx.fillStyle=C.bg;ctx.fillRect(0,0,128,160);
+  ctx.textAlign="left";ctx.textBaseline="top";
+  if(opts.page==="dash")DASH[S.theme](ctx,C,MONO,F2,F3,d);
+  else drawClock(ctx,C,MONO,F2,F3,d);
+  /* 像素网点质感 */
+  ctx.fillStyle="rgba(0,0,0,.05)";for(let y=0;y<160;y+=3)ctx.fillRect(0,y,128,1);
+}
+function renderDevice(){
+  drawDevice(devCtx,{page:S.page});
+  const sm=$("dashCanvas");sm.width=128;sm.height=160;
+  drawDevice(dashCtx,{page:S.page});
+}
+
+/* =================================================================
+   迷你 sparkline
+================================================================= */
+function drawSpark(id,arr,color){
+  const c=$(id);if(!c)return;const W=c.width=c.offsetWidth||220,H=c.height=26;
+  const g=c.getContext("2d");g.clearRect(0,0,W,H);
+  g.strokeStyle="rgba(139,160,189,.14)";g.beginPath();g.moveTo(0,H-1);g.lineTo(W,H-1);g.stroke();
+  if(arr.length<2)return;
+  g.strokeStyle=color;g.lineWidth=1.6;g.beginPath();
+  arr.forEach((v,i)=>{const x=i/(arr.length-1)*W,y=H-2-(v/100)*(H-5);i?g.lineTo(x,y):g.moveTo(x,y)});
+  g.stroke();
+  const lv=arr[arr.length-1];
+  g.fillStyle=color;g.beginPath();g.arc(W-1.5,H-2-(lv/100)*(H-5),2.4,0,7);g.fill();}
+
+/* =================================================================
+   指标模拟（1Hz，与真实产品 1Hz 采样一致）
+================================================================= */
+function wander(v,min,max,step){v+=(Math.random()-.5)*2*step;return Math.max(min,Math.min(max,v));}
+function tickMetrics(){
+  if(S.paused){renderDevice();return;}
+  S.metrics.cpu=wander(S.metrics.cpu,3,99,7);
+  S.metrics.gpu=wander(S.metrics.gpu,2,98,9);
+  S.metrics.ram=wander(S.metrics.ram,30,80,1.2);
+  S.metrics.rx=wander(S.metrics.rx,0,8,.8);S.metrics.tx=wander(S.metrics.tx,0,3,.4);
+  S.hist.cpu.push(S.metrics.cpu);S.hist.gpu.push(S.metrics.gpu);S.hist.ram.push(S.metrics.ram);
+  S.hist.net.push(S.metrics.rx*12);
+  [S.hist.cpu,S.hist.gpu,S.hist.ram,S.hist.net].forEach(a=>{if(a.length>40)a.shift();});
+  S.seq++;
+  $("mCpu").innerHTML=`${Math.round(S.metrics.cpu)}<small>%</small>`;
+  $("mCpu").className="mval"+(S.metrics.cpu>92?" mhi":S.metrics.cpu>75?" mwarn":"");
+  $("mGpu").innerHTML=`${Math.round(S.metrics.gpu)}<small>%</small>`;
+  $("mGpu").className="mval"+(S.metrics.gpu>92?" mhi":S.metrics.gpu>75?" mwarn":"");
+  $("mRam").innerHTML=`${Math.round(S.metrics.ram)}<small>%</small>`;
+  $("mNet").innerHTML=`↓${S.metrics.rx.toFixed(1)} <small style="font-size:14px">MB/s</small> ↑${S.metrics.tx.toFixed(1)}`;
+  $("sbSeq").textContent=S.seq;
+  drawSpark("skCpu",S.hist.cpu,"#22D3EE");drawSpark("skGpu",S.hist.gpu,"#8BA0BD");
+  drawSpark("skRam",S.hist.ram,"#F5B542");drawSpark("skNet",S.hist.net,"#4ADE80");
+  renderDevice();}
+
+/* =================================================================
+   暂停 / 恢复（复用固件 3 秒断流 → 时钟页语义）
+================================================================= */
+function setPaused(p,quiet){
+  S.paused=p;
+  $("tmPause").innerHTML=p?"▶ &nbsp;恢复监控":"⏸ &nbsp;暂停监控";
+  $("hdrPause").textContent=p?"恢复监控":"暂停监控";
+  $("sbState").textContent=p?"已暂停，屏幕稍后显示时钟":"正在发送电脑数据 → 192.168.1.255";
+  $("sbLamp").className="lb"+(p?" amber":S.hb.online?"":" off");
+  if(p){toast("已暂停，屏幕几秒后会改为显示时钟","warn");
+    setTimeout(()=>{if(S.paused){S.page="clock";renderDevice();syncPageSeg();}},3000);}
+  else{S.page="dash";renderDevice();syncPageSeg();
+    if(!quiet)toast("已恢复，屏幕重新显示电脑数据","ok",2200);}
+}
+$("hdrPause").onclick=()=>setPaused(!S.paused);
+$("tmPause").onclick=()=>{setPaused(!S.paused);closeTray();};
+
+/* =================================================================
+   主题选择与「同步」语义（离线演示待同步 / 在线演示已同步）
+================================================================= */
+function buildThemeGrid(){
+  const g=$("themeGrid");g.innerHTML="";
+  THEMES.forEach((t,i)=>{
+    const b=document.createElement("button");b.className="tcard"+(i===S.theme?" sel":"");
+    b.innerHTML=`<div class="tvis" style="background:${rgb565(t.bg)}">
+      <span class="n" style="color:${rgb565(t.fg)}">12:0${i}</span>
+      <span class="n2" style="color:${rgb565(t.muted)}">${t.en.toUpperCase()}</span>
+      <span class="bar" style="background:${rgb565(t.accent)};width:${28+i*14}%"></span></div>
+      <div class="tname">${t.name}<small>${i+1} 号主题</small></div>
+      <span class="tick">✓</span>`;
+    b.onclick=()=>setTheme(i);g.appendChild(b);});
+}
+let syncT=null;
+function setTheme(i){
+  if(i===S.theme)return;
+  S.theme=i;buildThemeGrid();renderDevice();
+  $("shTheme").innerHTML=`主题<b> ${THEMES[i].name}</b>`;
+  $("shAccent").textContent="accent "+hex565(THEMES[i].accent).toLowerCase();
+  $("dashThName").textContent="主题·"+THEMES[i].name;
+  $("railTh").textContent=THEMES[i].en;
+  const pill=$("syncPill");
+  if(S.hb.online){
+    pill.className="syncpill wait";pill.textContent="同步中…";
+    clearTimeout(syncT);
+    syncT=setTimeout(()=>{pill.className="syncpill";pill.textContent="已同步 ✓";toast("主题已换好，屏幕会记住这个选择","ok",2400)},900);
+  }else{
+    pill.className="syncpill wait";pill.textContent="待同步（设备离线）";
+    toast("屏幕不在线。这个选择已记住，连线后自动换上","warn",3600);
+  }
+}
+function syncPageSeg(){$$("#pageSeg button").forEach(b=>b.classList.toggle("on",b.dataset.page===S.page));}
+$$("#pageSeg button").forEach(b=>b.onclick=()=>{S.page=b.dataset.page;renderDevice();syncPageSeg();});
+$("miniDev").onclick=()=>goto("device");
+$$("[data-goto]").forEach(b=>b.onclick=()=>goto(b.dataset.goto));
+
+/* =================================================================
+   视图切换
+================================================================= */
+function goto(v){
+  S.view=v;
+  $$(".railbutton[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
+  $$(".view").forEach(el=>el.classList.toggle("active",el.id==="v-"+v));
+}
+$$(".railbutton[data-view]").forEach(b=>b.onclick=()=>goto(b.dataset.view));
+
+/* =================================================================
+   窗口 / 托盘
+================================================================= */
+function openWin(){$("appwin").classList.remove("hidden");$("tbApp").classList.add("on");S.quitting=false;}
+$("btnClose").onclick=()=>{$("appwin").classList.add("hidden");$("tbApp").classList.remove("on");toast("窗口已收起，屏幕不受影响。退出请用右下角图标的菜单","info",3400);};
+$("btnHide").onclick=()=>{$("appwin").classList.add("hidden");$("tbApp").classList.remove("on");};
+$("tbApp").onclick=()=>openWin();
+function closeTray(){$("trayMenu").classList.remove("open");}
+$("trayBtn").onclick=e=>{e.stopPropagation();
+  if(S.quitting){toast("程序已退出，再点一次图标可重新打开","info",2400);S.quitting=false;}
+  const m=$("trayMenu");m.classList.toggle("open");};
+document.addEventListener("click",e=>{if(!$("trayMenu").contains(e.target))closeTray();});
+$("tmOpen").onclick=()=>{closeTray();if(S.quitting){S.quitting=false;$("trayDot").classList.remove("off");}openWin();};
+$("tmAuto").onclick=()=>{setAutostart(!S.autostart);toast(S.autostart?"开机会自动开启":"开机不再自动开启",S.autostart?"ok":"warn",2200);};
+$("tmQuit").onclick=()=>{
+  closeTray();
+  if(!S.paused)toast("已退出。屏幕会继续显示时钟","info",2200);
+  S.quitting=true;$("appwin").classList.add("hidden");$("tbApp").classList.remove("on");
+  $("trayDot").classList.add("off");};
+function setAutostart(v){S.autostart=v;$("swAutostart").classList.toggle("on",v);$("tmAutoCk").style.visibility=v?"visible":"hidden";}
+$("swAutostart").onclick=()=>{setAutostart(!S.autostart);toast(S.autostart?"开机会自动开启":"开机不再自动开启",S.autostart?"ok":"warn",2000);};
+/* =================================================================
+   设置页
+================================================================= */
+/* 城市库（预览版节选；正式版内置全国地级市与经纬度，县级市属后续版本） */
+const CITY_DB={"北京市":[{"c":"北京市","lat":39.90,"lon":116.40}],"江苏省":[{"c":"南京市","lat":32.06,"lon":118.79},{"c":"扬州市","lat":32.39,"lon":119.41},{"c":"苏州市","lat":31.30,"lon":120.58},{"c":"无锡市","lat":31.49,"lon":120.31},{"c":"徐州市","lat":34.26,"lon":117.18}],"上海市":[{"c":"上海市","lat":31.23,"lon":121.47}],"广东省":[{"c":"广州市","lat":23.13,"lon":113.26},{"c":"深圳市","lat":22.54,"lon":114.05},{"c":"珠海市","lat":22.27,"lon":113.57}],"浙江省":[{"c":"杭州市","lat":30.27,"lon":120.15},{"c":"宁波市","lat":29.87,"lon":121.54},{"c":"温州市","lat":28.00,"lon":120.67}],"四川省":[{"c":"成都市","lat":30.57,"lon":104.06},{"c":"绵阳市","lat":31.47,"lon":104.68}],"湖北省":[{"c":"武汉市","lat":30.59,"lon":114.30},{"c":"宜昌市","lat":30.69,"lon":111.29}],"湖南省":[{"c":"长沙市","lat":28.23,"lon":112.94},{"c":"株洲市","lat":27.83,"lon":113.13}],"山东省":[{"c":"济南市","lat":36.65,"lon":117.12},{"c":"青岛市","lat":36.07,"lon":120.38},{"c":"烟台市","lat":37.46,"lon":121.44}],"河南省":[{"c":"郑州市","lat":34.75,"lon":113.63},{"c":"洛阳市","lat":34.62,"lon":112.45},{"c":"邯郸市","lat":36.63,"lon":114.49}],"河北省":[{"c":"石家庄市","lat":38.04,"lon":114.51},{"c":"保定市","lat":38.87,"lon":115.46}],"福建省":[{"c":"福州市","lat":26.07,"lon":119.30},{"c":"厦门市","lat":24.48,"lon":118.09}],"陕西省":[{"c":"西安市","lat":34.34,"lon":108.94},{"c":"宝鸡市","lat":34.36,"lon":107.24}],"安徽省":[{"c":"合肥市","lat":31.82,"lon":117.23},{"c":"芜湖市","lat":31.33,"lon":118.43},{"c":"蚌埠市","lat":32.92,"lon":117.39}],"山西省":[{"c":"太原市","lat":37.87,"lon":112.55},{"c":"吕梁市","lat":37.52,"lon":111.14}]};
+function initCitySel(){
+  const p=$("cityProv");p.innerHTML=Object.keys(CITY_DB).map(k=>`<option ${k===curCityFull.p?"selected":""}>${k}</option>`).join("");
+  const upd=()=>{const cs=CITY_DB[p.value];$("cityCity").innerHTML=cs.map(x=>`<option>${x.c}</option>`).join("");};
+  upd();p.onchange=upd;
+  $("cityCity").onchange=()=>{
+    curCityFull={p:p.value,c:$("cityCity").value};
+    $("cityMsg").textContent=`已切换到${curCityFull.c}，半小时内生效`;};}
+$$("#segRefresh button").forEach(b=>b.onclick=()=>{$$("#segRefresh button").forEach(x=>x.classList.remove("on"));b.classList.add("on");toast("屏幕刷新间隔已保存","ok",1800)});
+$$("#segWx button").forEach(b=>b.onclick=()=>{$$("#segWx button").forEach(x=>x.classList.remove("on"));b.classList.add("on");toast("天气刷新周期已保存","ok",1800)});
+$("btnCheckUpd").onclick=()=>toast("已是最新版本","info",2200);
+$("lnkRepo").onclick=()=>toast("正式版会打开项目主页","info",2000);
+$("btnQuit").onclick=()=>{toast("已退出","info");setTimeout(()=>{$("appwin").classList.add("hidden");$("tbApp").classList.remove("on");S.quitting=true;$("trayDot").classList.add("off")},700);};
+$("qaTheme").onclick=()=>{goto("device");setTheme((S.theme+1)%5);};
+$("qaPause2").onclick=()=>setPaused(!S.paused);
+$("btnReWifi").onclick=()=>{openWizard(2);toast("需要重新配网：用数据线连接屏幕，或重新运行向导","info",3200);};
+
+/* =================================================================
+   诊断
+================================================================= */
+function diagSet(key,state,detail){
+  const row=document.querySelector(`.diagrow[data-diag="${key}"]`),st=$("ds"+({hb:"Hb",bc:"Bc",wx:"Wx",ver:"Ver"})[key]);
+  row.classList.remove("run");
+  st.innerHTML=state==="ok"?"<span style='color:var(--green)'>通过 ✓</span>":state==="err"?"<span style='color:var(--red)'>未通过</span>":"<span style='color:var(--amber)'>跳过</span>";
+  const dd=$("dd"+({hb:"Hb",bc:"Bc",wx:"Wx",ver:"Ver"})[key]);dd.innerHTML=detail;}
+function log(txt,cls=""){const t=fmtTime();$("diagLog").innerHTML+=`<div><span class="t">[${t.h}:${t.m}:${t.s}]</span> <span class="${cls}">${txt}</span></div>`;$("diagLog").scrollTop=9e9;}
+$("btnDiag").onclick=async()=>{
+  $("btnDiag").disabled=true;$("diagLog").innerHTML="";log("一键体检开始……");
+  const steps=["hb","bc","wx","ver"];
+  for(const k of steps){
+    const row=document.querySelector(`.diagrow[data-diag="${k}"] .dico`);
+    $("ds"+({hb:"Hb",bc:"Bc",wx:"Wx",ver:"Ver"})[k]).innerHTML="<span class='spin'></span>";
+    row.textContent="⏳";
+    await new Promise(r=>setTimeout(r,850));
+    if(k==="hb"){
+      if(S.hb.online){diagSet("hb","ok",`在线，信号 ${S.hb.rssi} dBm，固件 ${S.hb.fw}`);log("收到屏幕应答（rssi -58）","ok");}
+      else{diagSet("hb","err","屏幕不在线。先确认它通电了，而且和电脑连的是<b>同一个路由器</b>。屏幕若显示热点名，重新运行向导");log("没收到屏幕应答，判定离线","er");}
+    }else if(k==="bc"){
+      diagSet("bc","ok",S.paused?"正常。你暂停了监控，恢复后会继续发送":"正常，每秒 1 条发往 192.168.1.255");
+      log("发送自检通过","ok");
+    }else if(k==="wx"){
+      diagSet("wx","ok","正常。「雾 2℃」已发到屏幕");log("天气源连通（204ms）","ok");
+    }else{
+      diagSet("ver","ok","v1.0.0 已是最新");log("版本检查：无更新","ok");}
+  }
+  log("体检完成："+(S.hb.online?"4/4 项通过":"3/4 项通过，屏幕需处理"));
+  toast("体检完成","ok",2200);
+  $("btnDiag").disabled=false;};
+$("btnCopy").onclick=()=>toast("已复制","ok",1600);
+
+/* =================================================================
+   向导
+================================================================= */
+const WB=$("wizard");
+function openWizard(step){
+  S.wstep=step||1;S.wifiSel=null;S.wifiOK=false;S.cityOK=false;S.themeOK=false;
+  if(step&&step>1)S._connReady=true;
+  WB.classList.add("open");renderWizard();}
+function closeWizard(){WB.classList.remove("open");}
+$("railWizard").onclick=()=>openWizard(1);
+$("wSkip").onclick=()=>{closeWizard();toast("已跳过，左侧随时可重新打开","info",2400);};
+$$(".wstep").forEach(s=>s.onclick=()=>{const n=+s.dataset.ws;
+  if(n<S.wstep||canGo(n)){S.wstep=n;renderWizard();}});
+
+const WIFIS=[{s:"Home-2.4G",q:4},{s:"ChinaNet-xK3p",q:3},{s:"Xiaomi_Router_5G",q:2},{s:"TP-LINK_88F2",q:3},{s:"Office-Guest",q:1},{s:"Starbucks-WiFi",q:1},{s:"HUAWEI-9Q2L",q:2},{s:"li-home",q:3}];
+function sigBars(q){let h="";for(let i=1;i<=4;i++)h+=`<i style="height:${3+i*3}px;opacity:${i<=q?1:.22}"></i>`;return h;}
+function canGo(n){ if(n<=1)return true;
+  if(n===2)return !!S._connReady;
+  if(n===3)return S.wifiOK;
+  if(n===4)return S.cityOK;
+  return false;}
+function renderWizard(){
+  const done2=S.wifiOK,done3=S.cityOK;
+  $$(".wstep").forEach((s,i)=>{s.classList.toggle("on",i+1===S.wstep);
+    s.classList.toggle("done",(i+1<S.wstep));});
+  const next=$("wNext"),skip=$("wSkip"),hint=$("wHint");
+  next.style.display="";next.disabled=false;next.textContent="下一步";
+  let body="";
+  if(S.wstep===1){
+    const usbOK=S.scene==="usb",online=S.scene==="online";
+    hint.textContent="第一次使用：给屏幕接好电源，选一种方式和电脑连上。推荐 USB 数据线。";
+    skip.style.display=online?"":"none";
+    body=`
+    <div style="font-size:20px;font-weight:800;margin-bottom:6px">连接你的屏幕设备</div>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:18px">屏幕出厂已装好固件，只需要连一次网，以后都不用电脑管它。</div>
+    <div class="conncards">
+      <button class="conncard ${usbOK?"ok":""}" id="connUsb">
+        <div class="cico">🔌</div><div class="ct">USB 数据线（推荐）</div>
+        <div class="cd">插上就能配，最稳，不用配对码</div>
+        <div class="cst">${usbOK?"● 已识别 RP2040 (COM3)":"○ 等待插入设备……"}</div></button>
+      <button class="conncard ${!usbOK&&!online?"busy":""}" id="connAp">
+        <div class="cico">📶</div><div class="ct">无线直连</div>
+        <div class="cd">屏幕显示 6 位配对码时，连它的热点来配网</div>
+        <div class="cst">${!usbOK&&!online?"<span class='pulse'></span> 等屏幕出现配对码":"○ 屏幕没在等配对"}</div></button>
+      <button class="conncard ${online?"ok":""}" id="connOn">
+        <div class="cico">🟢</div><div class="ct">设备已经在线</div>
+        <div class="cd">检测到屏幕已联网，不用再配</div>
+        <div class="cst">${online?"● 在线，可跳过此步":"○ 未发现"}</div></button>
+    </div>
+    <div style="font-size:12px;color:var(--faint);margin-top:14px">小提示：屏幕上一直显示 "WIFI CONFIG" 就说明它在等你配网。</div>`;
+  }
+  else if(S.wstep===2){
+    hint.textContent="密码只写入设备本身，不会上传到任何服务器。";
+    next.disabled=!S.wifiOK;
+    body=`
+    <div style="font-size:20px;font-weight:800;margin-bottom:6px">给屏幕连上家里的 Wi-Fi</div>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:16px">屏幕自己扫到的网络（2.4G）。电脑插着网线也能配。</div>
+    <div id="wifiList" style="max-height:158px;overflow-y:auto;margin-bottom:14px;padding-right:4px"></div>
+    <div style="display:grid;grid-template-columns:220px 1fr 1fr;gap:10px;align-items:start">
+      <div><input class="inp" id="wPsk" type="password" placeholder="Wi-Fi 密码（8–63 位）" style="width:100%;display:${S.wifiSel==null?"none":""}" autocomplete="off">
+        <div class="formmsg err" id="wPskErr" style="display:none"></div>
+        <label style="display:flex;gap:7px;font-size:12px;color:var(--muted);margin-top:8px;cursor:pointer"><input type="checkbox" id="wEye"> 显示密码</label></div>
+      <div id="wOtpWrap" style="opacity:${S.wOtpNeeded?1:.35}"><input class="inp" id="wOtp" maxlength="6" inputmode="numeric" placeholder="屏幕上的 6 位配对码" style="width:100%" ${S.wOtpNeeded?"":"disabled"}>
+        <div class="formmsg" style="color:var(--faint)">USB 连接时不用填</div></div>
+      <button class="btn ${S.wifiSel==null?"ghost":"primary"}" id="wSendW" style="justify-self:end">发送到屏幕</button>
+    </div>`;
+  }
+  else if(S.wstep===3){
+    hint.textContent="城市列表内置不用联网，选好就行。";
+    next.disabled=false;
+    body=`
+    <div style="font-size:20px;font-weight:800;margin-bottom:6px">你在哪座城市？</div>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:16px">屏幕会显示这座城市的天气。数据由电脑取好后发过去，<b>免费、不用申请 Key</b>。</div>
+    <div style="display:flex;gap:10px;max-width:430px">
+      <select class="sel" id="wProv" style="flex:1"></select>
+      <select class="sel" id="wCity" style="flex:1"></select>
+    </div>
+    <div style="margin-top:18px;display:flex;gap:12px;align-items:center">
+      <button class="btn ghost" id="wWxTry">测试一次天气</button>
+      <span id="wWxRes" style="font-size:12.5px;color:var(--faint)">尚未测试</span>
+    </div>`;
+  }
+  else{
+    hint.textContent="最后一步：挑一套配色，就可以开始用了。";
+    next.disabled=false;
+    body=`
+    <div style="font-size:20px;font-weight:800;margin-bottom:6px">选一套屏幕主题</div>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:16px">以后随时能换，按屏幕上的键也可以。</div>
+    <div class="tgrid" id="wTgrid"></div>
+    <div class="srow" style="margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:12px 16px">
+      <div class="sl">开机自动启动<div class="sd">开电脑自动点亮屏幕，不弹窗不打扰；随时可以关</div></div>
+      <div class="sright"><div class="switch on" id="wSwAuto" role="switch" tabindex="0"></div></div>
+    </div>`;
+  }
+  document.querySelector(".wbody").innerHTML=body;
+  /* 步内交互绑定 */
+  if(S.wstep===1){
+    const usbOK=S.scene==="usb",online=S.scene==="online";
+    if(usbOK||online)S._connReady=true;
+    next.textContent=online?"直接开始使用":"下一步";
+    next.disabled=!(usbOK||online||S._apDone);
+    if(online)$("connOn").onclick=()=>{closeWizard();toast("屏幕已联网，不用再配","ok",2600);};
+    $("connAp").onclick=()=>{ if(online||usbOK){toast("屏幕已配过网。要重新配，长按屏幕按键 3 秒","info",3400);return;}
+      S._apDone=true;S._connReady=true;S.wOtpNeeded=true;next.disabled=false;
+      toast("已连上屏幕热点","ok",2800);next.textContent="下一步";};
+    $("connUsb").onclick=()=>{ if(!usbOK){toast("用数据线连上电脑，这里会自动亮起","info",2800);}
+      else {S.wOtpNeeded=false;next.disabled=false;}};
+  }
+  if(S.wstep===2){
+    const list=$("wifiList");
+    list.innerHTML=WIFIS.map((w,i)=>`<button class="wifiitem${S.wifiSel===i?" sel":""}" data-i="${i}">
+      <span class="sicon">${sigBars(w.q)}</span><span class="ssid">${w.s}</span>
+      <span class="wtag">WPA2</span><span class="picked">✓</span></button>`).join("");
+    list.querySelectorAll(".wifiitem").forEach(b=>b.onclick=()=>{S.wifiSel=+b.dataset.i;renderWizard();});
+    const psk=$("wPsk");
+    if(S.wifiSel==null)$("wSendW").disabled=true;
+    $("wEye").onchange=e=>{if(psk)psk.type=e.target.checked?"text":"password";};
+    $("wSendW").onclick=()=>{
+      const v=psk?psk.value:"";
+      const err=$("wPskErr");
+      if(v.length<8){psk.classList.add("err");err.style.display="block";err.textContent="密码至少 8 位";return;}
+      psk.classList.remove("err");err.style.display="none";
+      if(S.wOtpNeeded&&$("wOtp").value.length!==6){$("wOtp").classList.add("err");toast("请输入屏幕上的 6 位数字","warn",2400);return;}
+      $("wSendW").disabled=true;$("wSendW").textContent="发送中…";
+      setTimeout(()=>{toast("已连上 "+WIFIS[S.wifiSel].s,"ok",2600);
+        S.wifiOK=true;S.hb.ssid=WIFIS[S.wifiSel].s;$("dvSsid").textContent=S.hb.ssid;
+        next.disabled=false;next.textContent="下一步";$("wSendW").textContent="已发送 ✓";},1300);};
+  }
+  if(S.wstep===3){
+    const p=$("wProv");p.innerHTML=Object.keys(CITY_DB).map(k=>`<option>${k}</option>`).join("");
+    p.value=curCityFull.p;
+    const upd=()=>{$("wCity").innerHTML=CITY_DB[p.value].map(x=>`<option>${x.c}</option>`).join("");};
+    upd();p.onchange=upd;
+    $("wWxTry").onclick=()=>{const r=$("wWxRes");r.textContent="正在获取……";r.style.color="var(--cyan)";
+      setTimeout(()=>{r.textContent="已连通，「雾 2℃」已发到屏幕";r.style.color="var(--green)";
+        S.wx.city=$("wCity").value;renderDevice();S.cityOK=true;next.textContent="下一步";},1100);};
+    S.cityOK=true;
+  }
+  if(S.wstep===4){
+    const g=$("wTgrid");
+    g.innerHTML="";
+    THEMES.forEach((t,i)=>{const b=document.createElement("button");
+      b.className="tcard"+(i===S.theme?" sel":"");
+      b.innerHTML=`<div class="tvis" style="background:${rgb565(t.bg)}"><span class="n" style="color:${rgb565(t.fg)}">12:0${i}</span><span class="n2" style="color:${rgb565(t.muted)}">${t.en.toUpperCase()}</span><span class="bar" style="background:${rgb565(t.accent)};width:${28+i*14}%"></span></div><div class="tname">${t.name}</div>`;
+      b.onclick=()=>{S.theme=i;renderWizard();buildThemeGrid();renderDevice();
+        $("shTheme").innerHTML=`主题<b> ${t.name}</b>`;$("shAccent").textContent="accent "+hex565(t.accent).toLowerCase();
+        $("dashThName").textContent="主题·"+t.name;$("railTh").textContent=t.en;};
+      g.appendChild(b);});
+    $("wSwAuto").onclick=()=>{setAutostart(!S.autostart);
+      $("wSwAuto").classList.toggle("on",S.autostart);};
+    next.textContent="完成";
+  }
+}
+$("wNext").onclick=()=>{
+  if(S.wstep>=4){finishWizard();return;}
+  if(S.wstep===1&&S.scene==="online"){closeWizard();toast("屏幕已就绪","ok");return;}
+  S.wstep++;renderWizard();};
+function finishWizard(){
+  document.querySelector(".wbody").innerHTML=`
+    <div class="wfinish">
+      <div class="okball">✓</div>
+      <div style="font-size:21px;font-weight:800">一切就绪！</div>
+      <div style="color:var(--muted);font-size:13.5px;margin:12px 0 4px;line-height:1.9">
+        主题「${THEMES[S.theme].name}」，开机自启动：${S.autostart?"开":"关"}<br>
+        屏幕现在应该正在显示你的电脑状态</div>
+    </div>`;
+  $$(".wstep").forEach(s=>s.classList.add("done"));
+  $("wNext").style.display="none";$("wSkip").style.display="none";
+  $("wHint").textContent="配置到此完成，之后都可以在设置里改。";
+  setTimeout(()=>{
+    const b=document.createElement("button");b.className="btn primary";b.textContent="开始使用";
+    b.onclick=()=>{closeWizard();goto("dash");
+      $$(".wstep").forEach(s=>s.classList.remove("done"));
+      $("wNext").style.display="";$("wNext").disabled=false;
+      toast("完成！屏幕正在显示你的电脑状态","ok",2800);};
+    document.querySelector(".wbody .wfinish").appendChild(document.createElement("div"));
+    document.querySelector(".wbody .wfinish").lastChild.style.marginTop="18px";
+    document.querySelector(".wbody .wfinish").lastChild.appendChild(b);},600);
+  renderDevice();}
+
+/* =================================================================
+   场景导演
+================================================================= */
+function applyScene(s){
+  S.scene=s;
+  $$("#directors .chip").forEach(c=>c.classList.toggle("on",c.dataset.scene===s));
+  S._apDone=false;S.wOtpNeeded=false;S._connReady=false;
+  if(s==="online"){ S.hb.online=true;startupPing();closeWizard();
+    toast("场景：设备在线","info",2400);}
+  else if(s==="usb"){ S.hb.online=true;startupPing();openWizard(1);
+    toast("场景：屏幕已用 USB 连接","info",2400);}
+  else if(s==="first"){ S.hb.online=false;openWizard(1);
+    toast("场景：首次使用","info",2400);}
+  else{ S.hb.online=false;closeWizard();
+    toast("场景：设备离线","info",2400);}
+  refreshHb();}
+$$("#directors .chip").forEach(c=>c.onclick=()=>applyScene(c.dataset.scene));
+function refreshHb(){
+  const on=S.hb.online;
+  $("devBadge").className="devbadge"+(on?"":" off");
+  $("devBadge").textContent=on?"● 设备在线":"● 设备离线";
+  $("trayDot").className="dot"+(on?"":" off");
+  $("dvState").className="v "+(on?"g":"r");
+  $("dvState").textContent=on?"在线 · 已配网":"离线中";
+  $("dvRssi").textContent=on?"-58 dBm（良好）":"-- dBm";
+  $("dvIp").textContent=on?"192.168.1.50":"--.---.--.---";
+  $("dashHb").textContent=on?"正常，信号好":"已失联";
+  $("dashHb").className="v "+(on?"g":"r");
+  $("dashWx").textContent=on?`${S.wx.text} ${S.wx.temp}℃ · ${S.wx.city}`:"等屏幕上线…";
+  $("dashWx").className="v "+(on?"g":"a");
+  $("sbLamp").className="lb"+(S.paused?" amber":on?"":" off");
+  if(!S.paused)$("sbState").textContent=on?"正在发送电脑数据 → 192.168.1.255":"发送中，等屏幕回到网络";
+  const pill=$("syncPill");
+  if(!on){pill.className="syncpill wait";pill.textContent="待同步（设备离线）";}
+  else{pill.className="syncpill";pill.textContent="已同步 ✓";}
+}
+function startupPing(){ /* 启动时的 2 秒探测：预览为即时返回 */
+  if(S.scene==="first")S.hb.online=false; else S.hb.online=true;}
+/* 首载：默认场景在线，模拟心跳探测后进入主界面 */
+window.addEventListener("resize",()=>{drawSpark("skCpu",S.hist.cpu,"#22D3EE");drawSpark("skGpu",S.hist.gpu,"#8BA0BD");drawSpark("skRam",S.hist.ram,"#F5B542");drawSpark("skNet",S.hist.net,"#4ADE80");});
+
+/* =================================================================
+   键盘（与桌面仿真一致的肌肉记忆：1-5 主机切主题、P 暂停）
+================================================================= */
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT"||e.target.tagName==="TEXTAREA")return;
+  if((e.key==="Enter"||e.key===" ")&&e.target.classList&&e.target.classList.contains("switch")){e.target.click();e.preventDefault();return;}
+  if(["1","2","3","4","5"].includes(e.key)){setTheme(+e.key-1);}
+  if(e.key.toLowerCase()==="p"){setPaused(!S.paused);}
+  if(e.key==="Escape"){closeTray();}
+});
+
+/* =================================================================
+   引导
+================================================================= */
+function boot(){
+  buildThemeGrid();initCitySel();syncPageSeg();
+  $("shAccent").textContent="accent "+hex565(THEMES[0].accent).toLowerCase();
+  tickClock();setInterval(tickClock,1000);
+  for(let i=0;i<18;i++)tickMetrics(); S.seq=0;$("sbSeq").textContent=0;
+  setInterval(tickMetrics,1000);
+  setInterval(()=>{$("dvLast").textContent=(Math.floor(Math.random()*3)+1)+" 秒前在线";},4000);
+  renderDevice();refreshHb();
+  setTimeout(()=>{toast("屏幕已就绪","ok",2600);},700);
+}
+boot();
+</script>
+</body>
+</html>
